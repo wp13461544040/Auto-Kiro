@@ -1,4 +1,4 @@
-package core
+﻿package core
 
 import (
 	"encoding/json"
@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	httputil "reg_go/internal/http"
+	httputil "github.com/wp13461544040/Auto-Kiro/internal/http"
 )
 
 // Step11CreateIdentity 创建身份

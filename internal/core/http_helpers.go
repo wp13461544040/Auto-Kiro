@@ -1,4 +1,4 @@
-package core
+﻿package core
 
 import (
 	"encoding/base64"
@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	httputil "reg_go/internal/http"
+	httputil "github.com/wp13461544040/Auto-Kiro/internal/http"
 )
 
 // BuildHeaders 构建通用请求头

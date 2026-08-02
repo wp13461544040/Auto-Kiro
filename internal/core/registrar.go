@@ -1,4 +1,4 @@
-package core
+﻿package core
 
 import (
 	"bytes"
@@ -14,10 +14,10 @@ import (
 	http "github.com/bogdanfinn/fhttp"
 	tls_client "github.com/bogdanfinn/tls-client"
 
-	"reg_go/internal/browser"
-	"reg_go/internal/crypto"
-	"reg_go/internal/email"
-	httputil "reg_go/internal/http"
+	"github.com/wp13461544040/Auto-Kiro/internal/browser"
+	"github.com/wp13461544040/Auto-Kiro/internal/crypto"
+	"github.com/wp13461544040/Auto-Kiro/internal/email"
+	httputil "github.com/wp13461544040/Auto-Kiro/internal/http"
 )
 
 // Registrar 完整的注册流程

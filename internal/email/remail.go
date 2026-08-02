@@ -1,4 +1,4 @@
-package email
+﻿package email
 
 import (
 	"bytes"
@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"reg_go/internal/storage"
+	"github.com/wp13461544040/Auto-Kiro/internal/storage"
 )
 
 // RemailConfig Remail 配置

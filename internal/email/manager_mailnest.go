@@ -1,11 +1,11 @@
-package email
+﻿package email
 
 import (
 	"encoding/json"
 	"log"
 	"os"
 	"path/filepath"
-	"reg_go/internal/storage"
+	"github.com/wp13461544040/Auto-Kiro/internal/storage"
 )
 
 // getMailNestConfigPath 获取 MailNest 配置文件路径

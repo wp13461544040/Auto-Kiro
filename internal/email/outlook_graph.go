@@ -1,4 +1,4 @@
-package email
+﻿package email
 
 import (
 	"encoding/json"
@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"reg_go/internal/storage"
+	"github.com/wp13461544040/Auto-Kiro/internal/storage"
 )
 
 type outlookGraphBody struct {

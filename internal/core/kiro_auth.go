@@ -1,4 +1,4 @@
-package core
+﻿package core
 
 import (
 	"bytes"
@@ -11,7 +11,7 @@ import (
 
 	fhttp "github.com/bogdanfinn/fhttp"
 
-	httputil "reg_go/internal/http"
+	httputil "github.com/wp13461544040/Auto-Kiro/internal/http"
 )
 
 // Step14KiroAuthorize Kiro IDE OAuth 授权（authorization_code + PKCE）

@@ -1,20 +1,20 @@
-package main
+﻿package main
 
 import (
 	"context"
 	"log"
 	"os"
-	"reg_go/internal/browser"
-	"reg_go/internal/data"
-	"reg_go/internal/email"
-	"reg_go/internal/proxy"
-	"reg_go/internal/subscription"
+	"github.com/wp13461544040/Auto-Kiro/internal/browser"
+	"github.com/wp13461544040/Auto-Kiro/internal/data"
+	"github.com/wp13461544040/Auto-Kiro/internal/email"
+	"github.com/wp13461544040/Auto-Kiro/internal/proxy"
+	"github.com/wp13461544040/Auto-Kiro/internal/subscription"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
-	"reg_go/internal/storage"
-	"reg_go/internal/task"
-	"reg_go/internal/updater"
+	"github.com/wp13461544040/Auto-Kiro/internal/storage"
+	"github.com/wp13461544040/Auto-Kiro/internal/task"
+	"github.com/wp13461544040/Auto-Kiro/internal/updater"
 	"time"
 )
 

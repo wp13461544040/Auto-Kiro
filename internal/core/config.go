@@ -1,10 +1,10 @@
-package core
+﻿package core
 
 import (
 	"math/rand"
 	"strings"
 
-	"reg_go/internal/email"
+	"github.com/wp13461544040/Auto-Kiro/internal/email"
 )
 
 // Config 注册配置

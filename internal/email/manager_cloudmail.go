@@ -1,4 +1,4 @@
-package email
+﻿package email
 
 import (
 	"encoding/json"
@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"reg_go/internal/storage"
+	"github.com/wp13461544040/Auto-Kiro/internal/storage"
 )
 
 // getCloudMailConfigPath 配置文件路径

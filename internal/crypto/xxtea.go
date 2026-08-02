@@ -1,4 +1,4 @@
-package crypto
+﻿package crypto
 
 import (
 	"encoding/base64"
@@ -12,7 +12,7 @@ import (
 	"sync"
 
 	fhttp "github.com/bogdanfinn/fhttp"
-	httputil "reg_go/internal/http"
+	httputil "github.com/wp13461544040/Auto-Kiro/internal/http"
 )
 
 const (

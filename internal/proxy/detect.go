@@ -1,4 +1,4 @@
-package proxy
+﻿package proxy
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"time"
 
 	fhttp "github.com/bogdanfinn/fhttp"
-	httputil "reg_go/internal/http"
+	httputil "github.com/wp13461544040/Auto-Kiro/internal/http"
 )
 
 // Info 代理检测结果

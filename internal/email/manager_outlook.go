@@ -1,10 +1,10 @@
-package email
+﻿package email
 
 import (
 	"os"
 	"time"
 
-	"reg_go/internal/storage"
+	"github.com/wp13461544040/Auto-Kiro/internal/storage"
 )
 
 // ParseOutlook 解析 Outlook 账号

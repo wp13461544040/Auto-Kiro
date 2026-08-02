@@ -1,4 +1,4 @@
-package browser
+﻿package browser
 
 import (
 	"crypto/sha256"
@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"reg_go/internal/storage"
+	"github.com/wp13461544040/Auto-Kiro/internal/storage"
 )
 
 // 默认缓存有效期：6 小时

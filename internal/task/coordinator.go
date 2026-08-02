@@ -1,4 +1,4 @@
-package task
+﻿package task
 
 import (
 	"context"
@@ -10,11 +10,11 @@ import (
 	"sync"
 	"time"
 
-	"reg_go/internal/core"
-	"reg_go/internal/data"
-	"reg_go/internal/email"
-	"reg_go/internal/proxy"
-	"reg_go/internal/storage"
+	"github.com/wp13461544040/Auto-Kiro/internal/core"
+	"github.com/wp13461544040/Auto-Kiro/internal/data"
+	"github.com/wp13461544040/Auto-Kiro/internal/email"
+	"github.com/wp13461544040/Auto-Kiro/internal/proxy"
+	"github.com/wp13461544040/Auto-Kiro/internal/storage"
 )
 
 // StartTaskRequest 启动任务请求

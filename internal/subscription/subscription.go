@@ -1,4 +1,4 @@
-package subscription
+﻿package subscription
 
 import (
 	"bytes"
@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	fhttp "github.com/bogdanfinn/fhttp"
-	httputil "reg_go/internal/http"
+	httputil "github.com/wp13461544040/Auto-Kiro/internal/http"
 )
 
 const (

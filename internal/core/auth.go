@@ -1,4 +1,4 @@
-package core
+﻿package core
 
 import (
 	"encoding/json"
@@ -10,7 +10,7 @@ import (
 	"time"
 
 	fhttp "github.com/bogdanfinn/fhttp"
-	httputil "reg_go/internal/http"
+	httputil "github.com/wp13461544040/Auto-Kiro/internal/http"
 )
 
 // Step12_8SSOWorkflow SSO 工作流

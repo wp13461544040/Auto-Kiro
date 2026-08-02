@@ -1,4 +1,4 @@
-package browser
+﻿package browser
 
 import (
 	"encoding/json"
@@ -7,7 +7,7 @@ import (
 	"math/rand"
 	"strings"
 
-	"reg_go/internal/crypto"
+	"github.com/wp13461544040/Auto-Kiro/internal/crypto"
 )
 
 // GenPerfTiming 生成 performance.timing

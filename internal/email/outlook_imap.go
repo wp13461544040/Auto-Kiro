@@ -1,4 +1,4 @@
-package email
+﻿package email
 
 import (
 	"bufio"
@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"reg_go/internal/storage"
+	"github.com/wp13461544040/Auto-Kiro/internal/storage"
 )
 
 // OutlookAccount Outlook 邮箱账号

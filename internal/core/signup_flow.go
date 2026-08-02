@@ -1,4 +1,4 @@
-package core
+﻿package core
 
 import (
 	"encoding/json"
@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"reg_go/internal/email"
-	httputil "reg_go/internal/http"
+	"github.com/wp13461544040/Auto-Kiro/internal/email"
+	httputil "github.com/wp13461544040/Auto-Kiro/internal/http"
 )
 
 // Step6SubmitEmail 提交邮箱

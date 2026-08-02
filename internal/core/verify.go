@@ -1,4 +1,4 @@
-package core
+﻿package core
 
 import (
 	"bytes"
@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	fhttp "github.com/bogdanfinn/fhttp"
-	httputil "reg_go/internal/http"
+	httputil "github.com/wp13461544040/Auto-Kiro/internal/http"
 )
 
 // VerifyAlive 验活: 刷新 Token + 查用量 + 查模型
