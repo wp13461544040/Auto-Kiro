@@ -1,0 +1,1230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23000'/><path d='M10 8v16M10 16l8-8M10 16l8 8' stroke='%23fff' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' fill='none'/></svg>">
+<title>KiroX</title>
+<link rel="stylesheet" href="css/layout.css">
+<link rel="stylesheet" href="css/dashboard.css">
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/components.css">
+<style>
+  /* 骨架屏样式 */
+  #skeleton-loader {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: linear-gradient(135deg, #eef2f7 0%, #e0e7ff 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+  }
+  .skeleton-content {
+    text-align: center;
+  }
+  .skeleton-logo {
+    width: 80px;
+    height: 80px;
+    margin: 0 auto 24px;
+    background: rgba(255,255,255,0.9);
+    border-radius: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1);
+  }
+  .skeleton-logo svg {
+    width: 48px;
+    height: 48px;
+  }
+  .skeleton-text {
+    font-size: 18px;
+    font-weight: 600;
+    color: #1f2937;
+    margin-bottom: 16px;
+  }
+  .skeleton-spinner {
+    width: 32px;
+    height: 32px;
+    margin: 0 auto;
+    border: 3px solid rgba(59,130,246,0.2);
+    border-top-color: #3b82f6;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+</style>
+</head>
+<body>
+
+<!-- 全局加载遮罩层 -->
+<div id="global-loading-overlay" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);z-index:9999;align-items:center;justify-content:center;flex-direction:column;">
+  <div class="skeleton-spinner" style="border-top-color:#3b82f6;"></div>
+  <div id="global-loading-text" style="margin-top:16px;font-size:14px;font-weight:600;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,0.3);" data-i18n="common.loading">正在激活...</div>
+</div>
+
+<!-- 骨架屏加载 -->
+<div id="skeleton-loader">
+  <div class="skeleton-content">
+    <div class="skeleton-logo">
+      <svg viewBox="0 0 32 32" fill="none">
+        <path d="M10 8v16M10 16l8-8M10 16l8 8" stroke="#000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <div class="skeleton-text">KiroX</div>
+    <div class="skeleton-spinner"></div>
+  </div>
+</div>
+
+<!-- 更新提示模态框 -->
+<div id="update-modal" class="modal-overlay">
+  <div style="width:100%;max-width:500px;padding:24px;max-height:90vh;display:flex;">
+    <div class="card" style="padding:32px;display:flex;flex-direction:column;min-height:0;flex:1;">
+      <div style="text-align:center;margin-bottom:24px;--wails-draggable:drag;cursor:move;flex-shrink:0;">
+        <div style="font-size:18px;font-weight:700;color:var(--accent);" data-i18n="modal.updateTitle">发现新版本</div>
+      </div>
+      <div style="margin-bottom:16px;--wails-draggable:no-drag;flex-shrink:0;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:12px;font-size:13px;">
+          <span style="color:var(--text-secondary);" data-i18n="about.currentVersion">当前版本</span>
+          <span id="update-current-version" style="font-family:var(--font-mono);font-weight:600;">-</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:12px;font-size:13px;">
+          <span style="color:var(--text-secondary);" data-i18n="about.latestVersion">最新版本</span>
+          <span id="update-latest-version" style="font-family:var(--font-mono);font-weight:600;color:var(--accent);">-</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:13px;">
+          <span style="color:var(--text-secondary);" data-i18n="about.releaseDate">发布日期</span>
+          <span id="update-release-date" style="font-family:var(--font-mono);font-weight:600;">-</span>
+        </div>
+      </div>
+      <div style="margin-bottom:20px;padding:16px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:var(--radius);--wails-draggable:no-drag;flex:1;min-height:0;display:flex;flex-direction:column;">
+        <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;flex-shrink:0;" data-i18n="about.updateContent">更新内容</div>
+        <div id="update-changelog" style="font-size:12px;line-height:1.6;color:var(--text);white-space:pre-wrap;overflow-y:auto;flex:1;min-height:0;">-</div>
+      </div>
+      <div class="btn-row" style="--wails-draggable:no-drag;flex-shrink:0;">
+        <button onclick="closeUpdateModal()" id="btn-update-later" class="btn btn-secondary" style="flex:1;justify-content:center;" data-i18n="modal.updateLater">稍后</button>
+        <button onclick="openReleasePage()" id="btn-update-now" class="btn btn-dark" style="flex:1;justify-content:center;" data-i18n="modal.updateDownload">前往下载</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 确认弹窗 -->
+<div id="confirm-modal" class="modal-overlay" style="z-index:1100;">
+  <div style="width:100%;max-width:400px;padding:24px;">
+    <div class="card" style="padding:32px;">
+      <div style="text-align:center;margin-bottom:20px;">
+        <div style="width:48px;height:48px;border-radius:14px;background:#fef2f2;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        </div>
+        <div id="confirm-title" style="font-size:17px;font-weight:700;color:var(--text);margin-bottom:8px;" data-i18n="modal.confirmLogoutTitle">确认退出卡密？</div>
+        <div id="confirm-message" style="font-size:13px;color:var(--text-secondary);line-height:1.6;" data-i18n="modal.confirmLogoutMsg">此操作会清除本地授权信息，需要重新激活卡密才能使用。</div>
+      </div>
+      <div class="btn-row">
+        <button onclick="closeConfirmModal()" class="btn btn-secondary" style="flex:1;justify-content:center;" data-i18n="common.cancel">取消</button>
+        <button id="confirm-action-btn" onclick="confirmAction()" class="btn btn-primary" style="flex:1;justify-content:center;background:var(--danger);" data-i18n="modal.confirmLogoutBtn">确认退出</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 批量导入代理模态框 -->
+<div id="proxy-batch-import-modal" class="modal-overlay" style="z-index:1100;">
+  <div style="width:100%;max-width:600px;padding:24px;">
+    <div class="card" style="padding:28px;">
+      <div style="margin-bottom:20px;">
+        <div style="font-size:17px;font-weight:700;color:var(--text);margin-bottom:8px;">批量导入代理</div>
+        <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;">每行一个代理地址，支持多种格式（如 http://host:port、socks5://user:pass@host:port、host:port:user:pass 等）</div>
+      </div>
+      <div style="margin-bottom:20px;">
+        <textarea id="proxy-batch-import-textarea" placeholder="示例：&#10;http://proxy1.example.com:8080&#10;socks5://user:pass@proxy2.example.com:1080&#10;proxy3.example.com:3128:username:password&#10;proxy4.example.com:8080" class="form-input" style="width:100%;min-height:240px;font-family:var(--font-mono);font-size:12px;resize:vertical;"></textarea>
+      </div>
+      <div class="btn-row">
+        <button onclick="closeBatchImportModal()" class="btn btn-secondary" style="flex:1;justify-content:center;">取消</button>
+        <button onclick="batchImportProxies()" class="btn btn-dark" style="flex:1;justify-content:center;">导入</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 主界面 ===== -->
+<div id="main-container" style="display:none;height:100vh;width:100vw;position:fixed;top:0;left:0;z-index:1;">
+
+<!-- 左侧边栏 -->
+<div class="sidebar">
+  <div class="sidebar-nav">
+    <!-- 概览 -->
+    <div class="nav-item active" onclick="switchPage('overview')" data-page="overview">
+      <div class="nav-dot"></div>
+      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      <span class="nav-tooltip" data-i18n="nav.overview">概览</span>
+    </div>
+    <!-- 日志 -->
+    <div class="nav-item" onclick="switchPage('logs')" data-page="logs">
+      <div class="nav-dot"></div>
+      <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+      <span class="nav-tooltip" data-i18n="nav.logs">运行日志</span>
+    </div>
+
+    <!-- 注册 -->
+    <div class="nav-item" onclick="switchPage('register')" data-page="register">
+      <div class="nav-dot"></div>
+      <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      <span class="nav-tooltip" data-i18n="nav.register">注册</span>
+    </div>
+    <!-- 邮箱池 -->
+    <div class="nav-item" onclick="switchPage('accounts')" data-page="accounts">
+      <div class="nav-dot"></div>
+      <svg viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+      <span class="nav-tooltip" data-i18n="nav.accounts">邮箱池</span>
+    </div>
+    <!-- 订阅 -->
+    <div class="nav-item" onclick="switchPage('subscription')" data-page="subscription">
+      <div class="nav-dot"></div>
+      <svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="6" y1="15" x2="10" y2="15"/></svg>
+      <span class="nav-tooltip" data-i18n="nav.subscription">订阅</span>
+    </div>
+  </div>
+
+  <div class="sidebar-bottom">
+    <div class="nav-divider"></div>
+    <!-- 信息 -->
+    <div class="nav-item" onclick="onNavInfoClick()" data-page="info">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <span class="nav-tooltip" data-i18n="nav.about">关于</span>
+    </div>
+    <!-- 设置 -->
+    <div class="nav-item" onclick="switchPage('settings')" data-page="settings">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      <span class="nav-tooltip" data-i18n="nav.settings">设置</span>
+    </div>
+    <!-- 主题切换 -->
+    <div class="nav-item" onclick="toggleTheme(event)">
+      <svg id="theme-icon-light" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+      <svg id="theme-icon-dark" viewBox="0 0 24 24" style="display:none;"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+      <span class="nav-tooltip" data-i18n="nav.toggleTheme">切换主题</span>
+    </div>
+    <!-- 语言切换（点击循环 zh → en → ja） -->
+    <div class="nav-item" onclick="cycleLanguage()" id="nav-language">
+      <img id="nav-language-label" src="https://flagcdn.com/w40/cn.png" alt="zh" style="width:22px;height:auto;border-radius:3px;display:block;box-shadow:0 0 0 1px rgba(0,0,0,0.08);">
+      <span class="nav-tooltip" id="nav-language-tooltip" data-i18n="nav.language">语言</span>
+    </div>
+    <!-- 检查更新 -->
+    <div class="nav-item" onclick="checkUpdateManually()">
+      <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-6.22-8.56"/><path d="M21 3v6h-6"/></svg>
+      <span class="nav-tooltip" data-i18n="nav.checkUpdate">检查更新</span>
+    </div>
+  </div>
+</div>
+
+<!-- 窗口标题栏 -->
+<div class="app-titlebar">
+  <span class="app-titlebar-text" id="titlebar-text" data-i18n="page.overview">概览</span>
+  <div class="window-traffic">
+    <div style="background:#28c840;" onclick="maximizeApp()"></div>
+    <div style="background:#febc2e;" onclick="minimizeApp()"></div>
+    <div style="background:#ff5f57;" onclick="closeApp()"></div>
+  </div>
+</div>
+
+<!-- 右侧主区域 -->
+<div class="app-layout">
+  <div class="app-content">
+
+    <!-- ===== Page: 概览（仪表盘） ===== -->
+    <div class="page active" id="page-overview">
+      <div class="db-wrap">
+        <!-- ===== 统计卡片 ===== -->
+        <div class="db-stats-row" style="grid-template-columns:1fr 1fr;">
+          <div class="db-stat-card">
+            <img src="assets/kiro.svg" style="width:52px;height:52px;border-radius:14px;flex-shrink:0;">
+            <div>
+              <div class="db-stat-label" data-i18n="overview.kiroAccounts">Kiro 账号数</div>
+              <div class="db-stat-value" id="ov-kiro-success">0</div>
+            </div>
+          </div>
+          <div class="db-stat-card">
+            <svg viewBox="0 0 24 24" width="52" height="52" fill="none" style="flex-shrink:0;">
+              <circle cx="12" cy="12" r="10" stroke="#10b981" stroke-width="2" fill="#10b98120"/>
+              <path d="M8 12l2.5 2.5L16 9" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <div>
+              <div class="db-stat-label" data-i18n="overview.successRate">注册成功率</div>
+              <div class="db-stat-value" id="ov-kiro-success-rate">0%</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== Kiro 任务卡片 ===== -->
+        <div class="db-detail-section">
+          <div class="db-detail-top">
+            <div class="db-detail-title">
+              <img src="assets/kiro.svg" style="width:22px;height:22px;border-radius:6px;">
+              <span>Kiro</span>
+            </div>
+            <div class="db-detail-actions">
+              <span id="ov-kiro-status" class="db-badge db-badge-idle" data-i18n="status.idle">空闲</span>
+              <span id="ov-target-mode-badge" class="db-badge" style="display:none;background:linear-gradient(135deg, #667eea 0%, #764ba2 100%);color:white;font-weight:600;">🎯 目标模式</span>
+              <span class="status-dot" id="st-dot"></span>
+            </div>
+          </div>
+          <div class="db-detail-body" style="flex-direction:column;">
+            <!-- 操作按钮 -->
+            <div style="display:flex;gap:8px;margin-bottom:4px;">
+              <button id="btn-start" onclick="switchPage('register')" class="btn btn-dark btn-sm" style="flex:1;justify-content:center;">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                <span data-i18n="overview.newTask">新建任务</span>
+              </button>
+              <button id="btn-stop" onclick="stopTask()" class="btn btn-secondary btn-sm" style="flex:1;justify-content:center;" disabled data-i18n="overview.stop">停止</button>
+            </div>
+            <!-- 实时状态 -->
+            <div class="db-sub-card" style="flex:none;">
+              <div class="db-sub-card-head">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                <span data-i18n="overview.liveStatus">实时状态</span>
+              </div>
+              <div class="db-sub-row"><span data-i18n="overview.progress">进度</span><span id="st-progress" style="font-weight:600;">0/0</span></div>
+              <div style="margin:6px 0;"><div class="db-progress-track"><div id="progress-bar" class="db-progress-fill"></div></div></div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px;">
+                <div class="db-sub-row"><span data-i18n="overview.success">成功</span><span class="db-num-green" id="st-success">0</span></div>
+                <div class="db-sub-row"><span data-i18n="overview.failed">失败</span><span class="db-num-red" id="st-failed">0</span></div>
+                <div class="db-sub-row"><span data-i18n="overview.elapsed">已耗时</span><span id="st-elapsed">0s</span></div>
+                <div class="db-sub-row"><span data-i18n="overview.eta">预计剩余</span><span id="st-eta">-</span></div>
+                <div class="db-sub-row"><span data-i18n="overview.avg">平均耗时</span><span id="st-avg">-</span></div>
+                <div class="db-sub-row"><span data-i18n="overview.rate">成功率</span><span id="st-rate">-</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+
+      </div>
+    </div>
+
+
+
+
+    <!-- ===== Page: 关于 ===== -->
+    <div class="page" id="page-info">
+      <div class="page-scroll" style="max-width:800px;margin:0 auto;">
+
+        <!-- 应用信息卡片 -->
+        <div class="card" style="margin-bottom:20px;">
+          <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
+            <div style="width:56px;height:56px;border-radius:14px;overflow:hidden;flex-shrink:0;">
+              <img src="assets/appicon.png" style="width:56px;height:56px;display:block;">
+            </div>
+            <div>
+              <div style="font-size:17px;font-weight:800;color:var(--text);">KiroX</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:3px;font-family:var(--font-mono);" id="info-version-detail">-</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;margin-left:auto;">
+              <button onclick="window.go.main.App.OpenURL('https://qm.qq.com/q/RXMTXUlc4w')" class="btn btn-secondary btn-sm" title="QQ 交流群">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true">
+                  <path d="M12 1.5c-3.07 0-5.6 2.31-5.97 5.28-.07.54-.1 1.1-.1 1.66 0 1.05.13 2.06.36 3.01-.5.55-1 1.18-1.41 1.83-.88 1.38-1.49 2.93-1.49 4.27 0 .53.13.85.27 1.03.18.21.45.31.7.31.62 0 1.27-.62 1.83-1.5.32.49.7.94 1.12 1.32-.39.5-.74 1.07-.95 1.69-.21.66-.21 1.39.27 1.95.39.46 1 .67 1.65.74.85.09 1.83-.05 2.78-.32.78-.22 1.55-.55 2.18-.93.63.38 1.4.71 2.18.93.95.27 1.93.41 2.78.32.65-.07 1.26-.28 1.65-.74.48-.56.48-1.29.27-1.95-.21-.62-.56-1.19-.95-1.69.42-.38.8-.83 1.12-1.32.56.88 1.21 1.5 1.83 1.5.25 0 .52-.1.7-.31.14-.18.27-.5.27-1.03 0-1.34-.61-2.89-1.49-4.27-.41-.65-.91-1.28-1.41-1.83.23-.95.36-1.96.36-3.01 0-.56-.03-1.12-.1-1.66C17.6 3.81 15.07 1.5 12 1.5z"/>
+                </svg>
+                <span data-i18n="about.joinGroup">加入交流群</span>
+              </button>
+              <button onclick="window.go.main.App.OpenURL('https://t.me/kiroXaitg')" class="btn btn-secondary btn-sm" title="Telegram 群组">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true">
+                  <path d="M9.78 15.92l-.36 4.04c.52 0 .74-.22 1.01-.49l2.42-2.32 5.02 3.67c.92.51 1.58.24 1.82-.85l3.31-15.52v-.01c.29-1.36-.5-1.89-1.4-1.56L1.74 9.36c-1.32.51-1.3 1.25-.23 1.58l4.92 1.54L17.85 5.4c.54-.36 1.04-.16.63.2"/>
+                </svg>
+                <span data-i18n="about.tgGroup">Telegram 群组</span>
+              </button>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 24px;">
+            <div style="display:flex;justify-content:space-between;font-size:13px;padding:8px 0;border-bottom:1px solid var(--border);">
+              <span style="color:var(--text-secondary);" data-i18n="about.currentVersion">当前版本</span>
+              <span style="font-weight:600;color:var(--text);font-family:var(--font-mono);" id="info-version-detail2">-</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:13px;padding:8px 0;border-bottom:1px solid var(--border);">
+              <span style="color:var(--text-secondary);" data-i18n="about.latestVersion">最新版本</span>
+              <span style="font-weight:600;font-family:var(--font-mono);" id="info-latest-version" style="color:var(--text);">-</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:8px 0;">
+              <span style="color:var(--text-secondary);" data-i18n="about.releaseDate">发布日期</span>
+              <span style="font-weight:600;color:var(--text);" id="info-release-date">-</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:8px 0;">
+              <span style="color:var(--text-secondary);" data-i18n="about.author">作者</span>
+              <div class="author-row" style="margin-top:0;padding:4px 8px;" onclick="window.go.main.App.OpenURL('https://github.com/wp13461544040')">
+                <div>
+                  <div style="font-size:13px;font-weight:600;color:var(--text);">wp</div>
+                  <div style="font-size:11px;color:var(--text-muted);">@wp13461544040</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 更新横幅 -->
+        <div id="info-update-banner" style="display:none;margin-bottom:20px;">
+          <div style="background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:12px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;">
+            <div style="display:flex;align-items:center;gap:12px;">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 11-6.22-8.56"/><path d="M21 3v6h-6"/></svg>
+              <div>
+                <div style="font-size:13px;font-weight:700;color:#fff;"><span data-i18n="about.newVersionFound">发现新版本</span> <span id="info-banner-version" style="font-family:var(--font-mono);"></span></div>
+                <div style="font-size:12px;color:rgba(255,255,255,0.75);margin-top:2px;" data-i18n="about.clickToUpdate">点击立即更新到最新版本</div>
+              </div>
+            </div>
+            <button onclick="checkUpdateManually()" class="btn btn-sm" style="background:#fff;color:#6366f1;font-weight:700;border:none;flex-shrink:0;" data-i18n="about.updateNow">立即更新</button>
+          </div>
+        </div>
+
+        <!-- 版本特性卡片 -->
+        <div class="card" style="padding:0;overflow:hidden;margin-bottom:20px;">
+          <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+            <span style="font-size:14px;font-weight:700;color:var(--text);" data-i18n="about.features">版本特性</span>
+            <span id="info-changelog-version" style="font-size:12px;font-weight:600;color:var(--text-muted);padding:3px 8px;background:var(--bg-subtle);border-radius:6px;font-family:var(--font-mono);">-</span>
+          </div>
+          <div id="info-changelog">
+            <span style="color:var(--text-muted);" data-i18n="common.loading">加载中...</span>
+          </div>
+        </div>
+
+        <!-- 赞助支持卡片 -->
+        <div class="card" style="margin-bottom:20px;">
+          <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:4px;" data-i18n="about.sponsor">赞助支持</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px;" data-i18n="about.sponsorDesc">如果这个工具对你有帮助，欢迎请作者喝杯咖啡 ☕</div>
+          <div style="display:flex;gap:16px;justify-content:center;">
+            <div style="text-align:center;">
+              <img src="assets/wx.jpg" style="width:140px;height:140px;border-radius:10px;object-fit:cover;border:1px solid var(--border);">
+              <div style="font-size:12px;color:var(--text-muted);margin-top:8px;" data-i18n="about.wechatPay">微信支付</div>
+            </div>
+            <div style="text-align:center;">
+              <img src="assets/zfb.jpg" style="width:140px;height:140px;border-radius:10px;object-fit:cover;border:1px solid var(--border);">
+              <div style="font-size:12px;color:var(--text-muted);margin-top:8px;" data-i18n="about.alipay">支付宝</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+
+    <!-- ===== Page: 设置 ===== -->
+    <div class="page" id="page-settings">
+      <div class="page-scroll" style="padding:28px 32px 40px;max-width:800px;margin:0 auto;">
+
+        <!-- 常规 -->
+        <div class="card" style="margin-bottom:20px;">
+          <div class="settings-group">
+            <div class="settings-group-title" data-i18n="settings.general">常规</div>
+
+            <div class="settings-item">
+              <div class="settings-item-main">
+                <div class="settings-item-title" data-i18n="settings.dataDir">存储目录</div>
+                <div class="settings-item-desc" data-i18n="settings.dataDirDesc">Outlook 账号池等内部数据的本地存储位置</div>
+              </div>
+              <div class="settings-item-action">
+                <div style="display:flex;gap:8px;width:100%;">
+                  <input type="text" id="cfg-data-dir" placeholder="默认存储路径" data-i18n-placeholder="settings.dataDirPlaceholder" class="form-input" readonly style="flex:1;">
+                  <button onclick="selectDataDir()" class="btn btn-secondary btn-sm" data-i18n="common.select">选择</button>
+                  <button onclick="resetDataDir()" class="btn btn-secondary btn-sm" data-i18n="common.reset">重置</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-item">
+              <div class="settings-item-main">
+                <div class="settings-item-title" data-i18n="settings.outputDir">注册结果输出目录</div>
+                <div class="settings-item-desc" data-i18n="settings.outputDirDesc">成功账号以明文 JSON 数组写入该目录下的 accounts.json</div>
+              </div>
+              <div class="settings-item-action">
+                <div style="display:flex;gap:8px;width:100%;">
+                  <input type="text" id="cfg-result-output-dir" placeholder="默认：应用所在目录" data-i18n-placeholder="settings.outputDirPlaceholder" class="form-input" readonly style="flex:1;">
+                  <button onclick="selectResultOutputDir()" class="btn btn-secondary btn-sm" data-i18n="common.select">选择</button>
+                  <button onclick="resetResultOutputDir()" class="btn btn-secondary btn-sm" data-i18n="common.reset">重置</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-item">
+              <div class="settings-item-main">
+                <div class="settings-item-title" data-i18n="settings.proxy">代理</div>
+                <div class="settings-item-desc" data-i18n="settings.proxyDesc">留空=直连。支持 http/https/socks5 完整 URL，也支持 host:port:user:pass、host:port、user:pass@host:port 等简写。添加多条后将按权重随机分配。</div>
+              </div>
+              <div class="settings-item-action">
+                <div style="display:flex;flex-direction:column;gap:8px;width:100%;">
+                  <div id="proxy-pool-list"></div>
+                  <div style="display:flex;gap:8px;align-self:flex-start;">
+                    <button type="button" onclick="addEmptyProxyRow()" class="btn btn-secondary btn-sm">+ 添加代理</button>
+                    <button type="button" onclick="showBatchImportModal()" class="btn btn-secondary btn-sm">批量导入</button>
+                  </div>
+                  <div id="proxy-detect-card" style="display:none;"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 邮箱提供商显示 -->
+        <div class="card" style="margin-bottom:20px;">
+          <div class="settings-group">
+            <div class="settings-group-title" data-i18n="settings.emailProviders">邮箱提供商显示</div>
+            <div class="settings-item-desc" style="margin-bottom:16px;color:var(--text-muted);font-size:12px;line-height:1.5;">
+              拖拽调整提供商的显示顺序，取消勾选可隐藏不需要的提供商
+            </div>
+            
+            <div id="email-providers-list" style="display:flex;flex-direction:column;gap:8px;">
+              <!-- 邮箱提供商列表将由 JS 动态生成 -->
+            </div>
+          </div>
+        </div>
+
+        <!-- 通知 -->
+        <div class="card" style="margin-bottom:20px;">
+          <div class="settings-group">
+            <div class="settings-group-title" data-i18n="settings.notification">通知</div>
+
+            <div class="settings-item">
+              <div class="settings-item-main">
+                <div class="settings-item-title" data-i18n="settings.sound">提示音</div>
+                <div class="settings-item-desc" data-i18n="settings.soundDesc">任务结束时播放提示音</div>
+              </div>
+              <div class="settings-item-action">
+                <label style="cursor:pointer;">
+                  <div class="toggle-switch">
+                    <input type="checkbox" id="cfg-sound" checked>
+                    <span class="toggle-slider"></span>
+                  </div>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ===== Page: 运行日志 ===== -->
+    <div class="page" id="page-logs" style="height:calc(100vh - 48px);overflow:hidden;">
+      <div style="padding:20px 24px;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">
+        <div class="logs-panel" style="flex:1;min-height:0;display:flex;flex-direction:column;">
+          <div class="logs-panel-header" style="display:flex;align-items:center;justify-content:space-between;">
+            <span style="font-weight:700;" data-i18n="logs.title">运行日志</span>
+            <button onclick="copyLogs()" class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 10px;">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+              <span data-i18n="logs.copyLog">复制日志</span>
+            </button>
+          </div>
+          <div id="unified-log-box" class="log-box" style="flex:1;min-height:0;overflow-y:auto;"></div>
+        </div>
+      </div>
+    </div>
+
+
+
+
+    <!-- ===== Page: 卡网 ===== -->
+    <div class="page" id="page-store" style="height:calc(100vh - 48px);overflow:hidden;position:relative;">
+      <iframe src="https://pay.ldxp.cn/shop/8UCMT1TR" sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms" style="width:100%;height:calc(100% + 160px);border:none;border-radius:12px;position:relative;top:-108px;overflow:hidden;"></iframe>
+    </div>
+
+    <!-- ===== Page: 订阅 ===== -->
+    <div class="page" id="page-subscription">
+      <div class="page-scroll" style="padding:28px 32px 40px;max-width:1100px;margin:0 auto;">
+
+        <div class="card" style="margin-bottom:20px;">
+          <div class="settings-group">
+            <div class="settings-group-title">
+              <span data-i18n="subscription.accountList">账号列表</span>
+              <span style="font-weight:400;color:var(--muted);font-size:11px;margin-left:6px;" id="sub-output-dir" data-i18n="subscription.autoLoaded">已自动加载输出文件夹中的账号</span>
+            </div>
+
+            <!-- 操作工具栏 -->
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 16px;border-bottom:1px solid var(--border);">
+              <button onclick="openSubscriptionPlanModal()" id="sub-batch-btn" class="btn btn-dark btn-sm" data-i18n="subscription.batchGet">一键获取选中</button>
+              <button onclick="copyAllSubscriptionLinks()" class="btn btn-secondary btn-sm" data-i18n="subscription.copyLinks">复制选中链接</button>
+              <button onclick="reloadSubscriptionAccounts()" class="btn btn-secondary btn-sm" data-i18n="subscription.reload">重新加载账号</button>
+              <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin-left:auto;">
+                <span data-i18n="subscription.concurrency">并发</span>
+                <input type="number" id="sub-concurrency" min="1" max="20" value="3" class="form-input" style="width:60px;text-align:center;height:28px;padding:2px;">
+              </div>
+              <span id="sub-progress" style="font-size:12px;color:var(--muted);" data-i18n="subscription.notStarted">未开始</span>
+            </div>
+
+            <!-- 表格 -->
+            <div style="overflow-x:auto;">
+              <table id="sub-table" style="width:100%;border-collapse:collapse;font-size:13px;">
+                <thead>
+                  <tr style="text-align:left;color:var(--muted);font-size:12px;">
+                    <th style="padding:8px 12px;width:36px;">
+                      <input type="checkbox" id="sub-select-all" onchange="toggleSubSelectAll(this.checked)">
+                    </th>
+                    <th style="padding:8px 8px;width:36px;">#</th>
+                    <th style="padding:8px 8px;" data-i18n="subscription.thEmail">邮箱</th>
+                    <th style="padding:8px 8px;width:120px;" data-i18n="subscription.thSubscription">订阅</th>
+                    <th style="padding:8px 8px;width:90px;" data-i18n="subscription.thStatus">状态</th>
+                    <th style="padding:8px 12px;width:180px;text-align:right;" data-i18n="subscription.thActions">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="sub-table-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ===== 订阅计划选择模态框 ===== -->
+    <div id="sub-plan-modal" class="modal-overlay">
+      <div class="modal-content" style="max-width:560px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <h3 style="font-size:16px;font-weight:700;" data-i18n="subscription.planModalTitle">选择订阅计划</h3>
+          <button onclick="closeSubscriptionPlanModal()" style="background:none;border:none;color:var(--text-muted);font-size:28px;cursor:pointer;line-height:1;">&times;</button>
+        </div>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" id="sub-plan-modal-hint" data-i18n="subscription.planLoading">将使用账号 — 加载中…</div>
+        <div id="sub-plan-modal-list" style="display:flex;flex-direction:column;gap:8px;min-height:80px;max-height:50vh;overflow-y:auto;margin-bottom:20px;">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:30px 0;color:var(--text-muted);font-size:12px;">
+            <div style="width:28px;height:28px;border:3px solid var(--border);border-top-color:#3b82f6;border-radius:50%;animation:spin 0.8s linear infinite;"></div>
+            <span data-i18n="common.loading">加载中…</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;">
+          <button onclick="closeSubscriptionPlanModal()" class="btn btn-secondary" data-i18n="common.cancel">取消</button>
+          <button onclick="confirmStartBatchFetch()" id="sub-plan-modal-confirm" class="btn btn-dark" disabled data-i18n="subscription.startBatch">开始获取</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 订阅获取失败详情模态框 ===== -->
+    <div id="sub-error-modal" class="modal-overlay">
+      <div class="modal-content" style="max-width:640px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h3 style="font-size:16px;font-weight:700;color:#ef4444;" data-i18n="subscription.errorModalTitle">获取失败 · 上游响应</h3>
+          <button onclick="closeSubErrorModal()" style="background:none;border:none;color:var(--text-muted);font-size:28px;cursor:pointer;line-height:1;">&times;</button>
+        </div>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;"><span data-i18n="subscription.errorAccount">账号</span>：<span id="sub-error-modal-email" style="color:var(--text);font-weight:600;"></span></div>
+        <pre id="sub-error-modal-body" style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:8px;padding:12px;font-family:var(--font-mono);font-size:12px;line-height:1.5;max-height:50vh;overflow:auto;white-space:pre-wrap;word-break:break-all;margin:0 0 16px;"></pre>
+        <div style="display:flex;gap:10px;justify-content:flex-end;">
+          <button onclick="copySubErrorDetail()" class="btn btn-secondary" data-i18n="common.copy">复制</button>
+          <button onclick="closeSubErrorModal()" class="btn btn-dark" data-i18n="common.close">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Page: 注册 ===== -->
+    <div class="page" id="page-register">
+      <div class="page-scroll" style="max-width:800px;margin:0 auto;">
+
+        <!-- 任务配置卡片 -->
+        <div class="card" style="margin-bottom:20px;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">
+            <img src="assets/kiro.svg" style="width:24px;height:24px;border-radius:6px;">
+            <span style="font-size:15px;font-weight:700;color:var(--text);" data-i18n="register.newTask">新建注册任务</span>
+            <span id="reg-status-badge" class="db-badge db-badge-idle" style="margin-left:auto;" data-i18n="status.idle">空闲</span>
+          </div>
+
+          <!-- 并发 & 延迟 & 数量 -->
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px;">
+            <div class="form-group" style="margin-bottom:0;">
+              <label style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;display:block;">
+                <span data-i18n="register.count">注册数量</span>
+                <span id="target-mode-indicator" style="font-size:10px;color:var(--text-muted);font-weight:400;margin-left:4px;">(目标模式)</span>
+              </label>
+              <input type="number" id="cfg-count" value="1" min="1" class="form-input" style="height:38px;">
+              <div style="margin-top:6px;display:flex;align-items:center;gap:6px;">
+                <label style="cursor:pointer;display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-secondary);">
+                  <input type="checkbox" id="cfg-target-mode" style="width:14px;height:14px;" onchange="updateTargetModeUI()">
+                  <span style="font-weight:600;">🎯 目标模式</span>
+                </label>
+                <div class="tooltip-trigger">
+                  <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted);"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                  <span class="tooltip-content" style="width:220px;left:50%;transform:translateX(-50%);">启用后，意外中断会自动开启新一轮，直到成功注册数达到目标数量</span>
+                </div>
+              </div>
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;display:block;" data-i18n="register.concurrency">并发数</label>
+              <input type="number" id="cfg-concurrency" value="1" min="1" max="10" class="form-input" style="height:38px;">
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;display:block;" data-i18n="register.delay">延迟 (秒)</label>
+              <input type="number" id="cfg-delay" value="1" min="0" class="form-input" style="height:38px;">
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:16px;">
+            <label style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;display:block;" data-i18n="register.emailProvider">邮箱提供商</label>
+            <div style="display:flex;gap:8px;">
+              <label style="flex:1;display:flex;align-items:center;justify-content:center;padding:10px;border:2px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:all 0.2s;" onclick="selectEmailProvider('outlook')">
+                <input type="radio" name="email-provider" value="outlook" checked style="display:none;">
+                <div id="provider-outlook" style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text);">
+                  <img src="assets/outlook.png" style="width:20px;height:20px;border-radius:4px;">
+                  <span data-i18n="register.outlook">微软邮箱</span>
+                </div>
+              </label>
+              <label style="flex:1;display:flex;align-items:center;justify-content:center;padding:10px;border:2px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:all 0.2s;" onclick="selectEmailProvider('moemail')">
+                <input type="radio" name="email-provider" value="moemail" style="display:none;">
+                <div id="provider-moemail" style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text);">
+                  <svg viewBox="0 0 32 32" width="20" height="20" fill="none" style="color:#8b5cf6;">
+                    <path d="M4 8h24v16H4V8z" fill="currentColor" opacity="0.2"/>
+                    <path d="M4 8h24v2H4V8zM4 22h24v2H4v-2z" fill="currentColor"/>
+                    <path d="M14 12h4v4h-4v-4zM12 14h2v4h-2v-4zM18 14h2v4h-2v-4zM14 18h4v2h-4v-2z" fill="currentColor"/>
+                    <path d="M4 8l12 8 12-8" stroke="currentColor" stroke-width="2" fill="none"/>
+                    <path d="M8 18h2v2H8v-2zM22 18h2v2h-2v-2z" fill="currentColor" opacity="0.6"/>
+                    <path d="M8 14h2v2H8v-2zM22 14h2v2h-2v-2z" fill="currentColor" opacity="0.4"/>
+                  </svg>
+                  <span>MoeMail</span>
+                </div>
+              </label>
+              <label style="flex:1;display:flex;align-items:center;justify-content:center;padding:10px;border:2px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:all 0.2s;" onclick="selectEmailProvider('cloudmail')">
+                <input type="radio" name="email-provider" value="cloudmail" style="display:none;">
+                <div id="provider-cloudmail" style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text);">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#0ea5e9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M18 10h-1.26A8 8 0 109 20h9a5 5 0 000-10z"/>
+                  </svg>
+                  <span data-i18n="register.cloudmail">Cloud-Mail</span>
+                </div>
+              </label>
+                <label style="flex:1;display:flex;align-items:center;justify-content:center;padding:10px;border:2px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:all 0.2s;"
+                       onclick="selectEmailProvider('mailnest')">
+                    <input type="radio" name="email-provider" value="outlook" checked style="display:none;">
+                    <div id="provider-mailnest"
+                         style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text);">
+                        <svg id="mailnest-icon" width="18" height="18" data-name="mailnest-icon"
+                             xmlns="http://www.w3.org/2000/svg" viewBox="0 0 183 173">
+                            <defs>
+                                <style>
+                                    .cls-1 {
+                                        fill: #fff;
+                                    }
+                                </style>
+                            </defs>
+                            <path d="M149.29,152.09c-16.99,7.44-19.61,1.05-28.15,5.87h17.22c-7.73,11-24.54,5.73-31.95,6.26-8.68.63-17.04,3.96-25.77,3.51-11.01-.57-20.76-4.18-30.16-9.4,16.2-1.43,20.85,5.07,39.15,2.43l-5.93-2.86c14.19-5.88,8.11-3.03,22.62-1.69,8.27-3.06,15.4-6.74,22.41-11.75l-19.65.99,5.51-4.62c-4.63.86-7.93,1.92-11.89,3.47-22.53,8.79-60.2,19.3-79.17-.74-1.04-1.09-1.52-4.01-.78-4.95,3.43-4.37,13.59,10.32,27.37,8.15l-6.75-5.27,13.19.98c5.01.37,4.36,7.31,26.37-.05-6.52-1.27-11.58-2.21-17.42-3.01-12.25-1.67-16.05,1.93-28.43-9.57l3.62-.97c-12.1-8.44-28.76-16.76-34.65-31.51-.49-1.23.6-4.19,1.66-4.68,5.44-2.51,6.15,8.09,13.18,13-3.34-10.4-5.8-19.32-3.53-29.91.84-3.91,3.24-9.34,7.74-8.95,1.06.09,2.5,2.52,1.94,3.69-8.03,16.58.35,38.17,15.9,48.74l.29-29.62c.04-4.01,3.2-7.6,7.5-7.6l81.48.08c4.65,0,7.12,3.11,7.09,7.33l-.17,24.63c-18.29,15.4-37.32,18.58-60.21,18.12,28.74,5.65,67.93-8.09,76.11-39.1,1.89-7.15.77-14.66-1.69-21.33-.45-1.21,2.22-3.57,3.23-3.14s3.32,1.9,3.77,2.96c5.89,13.56,2.83,28.3-5.65,40.51-8.18,11.78-20.76,18.68-33.44,25.04,23.17-1.26,23.3-7.35,34.97-22.79,10.5-13.91,7.61-24.11,12.27-23.33,6.01,1,1.6,13.83-.06,16.73l-9.57,16.73c7.52-2.13,7.92-11.3,12.46-11.23,3.22.05,3.7,6.68-3.5,13.77-11.39,11.21-19.4,7.63-30.89,20.99,12.72.91,21.15-11.29,25.45-11.38,2.92-.06-1.84,10.52-13.1,15.45ZM96.46,124.22l35.23-31.84c-13.24,7.1-23.58,16.45-35.65,24.57-3.48,2.34-7.17,1.7-10.45-.71-10.33-7.59-19.95-14.88-31.19-22.15,5.52,7.01,11.97,11.55,17.92,17.54s17.22,18.84,24.14,12.59Z"/>
+                            <path d="M102.05,78.43c4.96-7.1,7.92-14.67,3.81-23.18-.95,8.35-4.11,15.1-11.91,18.81-4.73,2.25-10.86,4.11-16.45,4.15l-34.33.23,32.63-31.47c17.05-16.44,16.03-36.89,37.55-39.73,9.66-1.27,18.53,3.02,23.35,11.39l13.59,1.32c-4.22,3.93-8.6,5.43-11.16,9.71-3.41,5.7,7.62,30.02-10.64,49.16-8.72.08-16.29.11-26.43-.39ZM126.67,24.47c0-2.33-1.89-4.22-4.22-4.22s-4.22,1.89-4.22,4.22,1.89,4.22,4.22,4.22,4.22-1.89,4.22-4.22Z"/>
+                            <path d="M36.3,135.84c-8.93-.4-18.07-4.1-24.22-10.39-3.67-3.75-4.98-10.13.21-13.51,6.98,15.26,12.1,8.42,24.01,23.89Z"/>
+                        </svg>
+                        <span>MailNest</span>
+                    </div>
+                </label>
+                <label style="flex:1;display:flex;align-items:center;justify-content:center;padding:10px;border:2px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:all 0.2s;"
+                       onclick="selectEmailProvider('remail')">
+                    <input type="radio" name="email-provider" value="remail" style="display:none;">
+                    <div id="provider-remail"
+                         style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text);">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                            <polyline points="22,6 12,13 2,6"/>
+                        </svg>
+                        <span>Remail</span>
+                    </div>
+                </label>
+            </div>
+          </div>
+
+          <!-- MoeMail 域名选择 -->
+          <div id="moemail-config-select" style="display:none;margin-bottom:16px;">
+            <div class="form-group" style="margin-bottom:0;">
+              <label style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;">
+                <div style="display:flex;align-items:center;gap:6px;">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#8b5cf6;"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>
+                  <span data-i18n="register.selectDomain">选择域名</span>
+                </div>
+                <button type="button" onclick="selectAllMoeMailDomains()" class="moemail-select-all-btn" data-i18n="register.selectAllDomain">全选域名</button>
+              </label>
+              <div id="cfg-moemail-domains-list" class="moemail-domains-container">
+                <div style="text-align:center;color:var(--text-muted);font-size:12px;padding:12px;" data-i18n="common.loading">加载中...</div>
+              </div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:6px;" data-i18n="register.domainHint">邮箱名将自动生成随机字符串</div>
+            </div>
+          </div>
+
+          <!-- Cloud-Mail 域名选择 -->
+          <div id="cloudmail-config-select" style="display:none;margin-bottom:16px;">
+            <div class="form-group" style="margin-bottom:0;">
+              <label style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;">
+                <div style="display:flex;align-items:center;gap:6px;">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#0ea5e9;"><path d="M18 10h-1.26A8 8 0 109 20h9a5 5 0 000-10z"/></svg>
+                  <span data-i18n="register.selectDomain">选择域名</span>
+                </div>
+                <button type="button" onclick="selectAllCloudMailDomains()" class="moemail-select-all-btn" data-i18n="register.selectAllDomain">全选域名</button>
+              </label>
+              <div id="cfg-cloudmail-domains-list" class="moemail-domains-container">
+                <div style="text-align:center;color:var(--text-muted);font-size:12px;padding:12px;" data-i18n="common.loading">加载中...</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 提示文字 -->
+          <div id="email-provider-hint" style="font-size:11px;color:var(--text-muted);margin-bottom:20px;line-height:1.5;padding:10px 12px;background:var(--bg-subtle);border-radius:8px;" data-i18n="register.outlookHint">
+            使用微软邮箱进行注册。
+          </div>
+
+          <!-- 操作按钮 -->
+          <div style="display:flex;gap:10px;">
+            <button id="btn-start" onclick="startTask()" class="btn btn-dark" style="flex:1;justify-content:center;">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              <span data-i18n="register.startBtn">开始注册</span>
+            </button>
+            <button id="btn-stop" onclick="stopTask()" class="btn btn-secondary" style="flex:1;justify-content:center;" disabled>
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+              <span data-i18n="register.stopBtn">停止</span>
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ===== Page: 邮箱池 ===== -->
+    <div class="page" id="page-accounts">
+      <div class="page-scroll" style="max-width:800px;margin:0 auto;">
+
+        <!-- MoeMail 配置 -->
+        <div class="card" style="flex-shrink:0;margin-bottom:20px;">
+          <div class="settings-group">
+            <div class="settings-group-title" style="display:flex;align-items:center;justify-content:space-between;">
+              <div style="display:flex;align-items:center;gap:10px;">
+                <svg viewBox="0 0 32 32" width="18" height="18" fill="none" style="color:#8b5cf6;">
+                  <path d="M4 8h24v16H4V8z" fill="currentColor" opacity="0.2"/>
+                  <path d="M4 8h24v2H4V8zM4 22h24v2H4v-2z" fill="currentColor"/>
+                  <path d="M14 12h4v4h-4v-4zM12 14h2v4h-2v-4zM18 14h2v4h-2v-4zM14 18h4v2h-4v-2z" fill="currentColor"/>
+                  <path d="M4 8l12 8 12-8" stroke="currentColor" stroke-width="2" fill="none"/>
+                  <path d="M8 18h2v2H8v-2zM22 18h2v2h-2v-2z" fill="currentColor" opacity="0.6"/>
+                  <path d="M8 14h2v2H8v-2zM22 14h2v2h-2v-2z" fill="currentColor" opacity="0.4"/>
+                </svg>
+                <span data-i18n="accounts.moemailTitle">MoeMail 临时邮箱</span>
+              </div>
+              <span id="settings-moemail-summary" style="font-size:12px;font-weight:600;color:var(--text-muted);padding:4px 10px;background:var(--bg-subtle);border-radius:6px;" data-i18n="moemail.summaryNone">未配置</span>
+            </div>
+            <div class="moemail-add-section">
+              <div class="moemail-add-header">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                <span data-i18n="accounts.addConfig">添加新配置</span>
+              </div>
+              <div class="moemail-add-body">
+                <div class="moemail-input-row">
+                  <div class="moemail-input-group" style="flex:1;">
+                    <label><span data-i18n="accounts.configName">名称</span> <span style="font-weight:400;color:var(--text-muted);text-transform:none;letter-spacing:0;" data-i18n="accounts.optional">(可选)</span></label>
+                    <input type="text" id="moemail-inline-name" placeholder="自动生成" data-i18n-placeholder="accounts.configNamePlaceholder" class="form-input">
+                  </div>
+                  <div class="moemail-input-group" style="flex:2;">
+                    <label data-i18n="accounts.apiUrl">API URL</label>
+                    <input type="text" id="moemail-inline-url" placeholder="https://moemail.app" class="form-input">
+                  </div>
+                  <div class="moemail-input-group" style="flex:2;">
+                    <label data-i18n="accounts.apiKey">API Key</label>
+                    <input type="text" id="moemail-inline-apikey" placeholder="YOUR_API_KEY" class="form-input">
+                  </div>
+                </div>
+                <div class="moemail-action-row">
+                  <button onclick="inlineTestMoeMail()" class="btn btn-secondary btn-sm" id="moemail-inline-test-btn">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                    <span data-i18n="accounts.testConnection">测试连接</span>
+                  </button>
+                  <button onclick="inlineAddMoeMail()" class="btn btn-dark btn-sm">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                    <span data-i18n="accounts.addConfigBtn">添加配置</span>
+                  </button>
+                  <span id="moemail-inline-status" class="moemail-status-text"></span>
+                </div>
+              </div>
+            </div>
+            <div id="moemail-inline-list" class="moemail-config-list"></div>
+          </div>
+        </div>
+
+        <!-- Cloud-Mail 配置 -->
+        <div class="card" style="flex-shrink:0;margin-bottom:20px;">
+          <div class="settings-group">
+            <div class="settings-group-title" style="display:flex;align-items:center;justify-content:space-between;">
+              <div style="display:flex;align-items:center;gap:10px;">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#0ea5e9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M18 10h-1.26A8 8 0 109 20h9a5 5 0 000-10z"/>
+                </svg>
+                <span data-i18n="accounts.cloudmailTitle">Cloud-Mail 自部署邮箱</span>
+              </div>
+              <span id="settings-cloudmail-summary" style="font-size:12px;font-weight:600;color:var(--text-muted);padding:4px 10px;background:var(--bg-subtle);border-radius:6px;" data-i18n="cloudmail.summaryNone">未配置</span>
+            </div>
+            <div class="moemail-add-section">
+              <div class="moemail-add-header">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                <span data-i18n="accounts.addConfig">添加新配置</span>
+              </div>
+              <div class="moemail-add-body">
+                <div class="moemail-input-row">
+                  <div class="moemail-input-group" style="flex:1;">
+                    <label><span data-i18n="accounts.configName">名称</span> <span style="font-weight:400;color:var(--text-muted);text-transform:none;letter-spacing:0;" data-i18n="accounts.optional">(可选)</span></label>
+                    <input type="text" id="cloudmail-inline-name" placeholder="自动生成" data-i18n-placeholder="accounts.configNamePlaceholder" class="form-input">
+                  </div>
+                  <div class="moemail-input-group" style="flex:2;">
+                    <label data-i18n="accounts.apiUrl">URL</label>
+                    <input type="text" id="cloudmail-inline-url" placeholder="https://mail.example.com" class="form-input">
+                  </div>
+                </div>
+                <div class="moemail-input-row">
+                  <div class="moemail-input-group" style="flex:1;">
+                    <label data-i18n="cloudmail.adminEmail">管理员邮箱</label>
+                    <input type="text" id="cloudmail-inline-email" placeholder="admin@example.com" class="form-input">
+                  </div>
+                  <div class="moemail-input-group" style="flex:1;">
+                    <label data-i18n="cloudmail.adminPassword">管理员密码</label>
+                    <input type="password" id="cloudmail-inline-password" placeholder="••••••••" class="form-input">
+                  </div>
+                </div>
+                <div class="moemail-action-row">
+                  <button onclick="inlineTestCloudMail()" class="btn btn-secondary btn-sm" id="cloudmail-inline-test-btn">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                    <span data-i18n="accounts.testConnection">测试连接</span>
+                  </button>
+                  <button onclick="inlineAddCloudMail()" class="btn btn-dark btn-sm">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                    <span data-i18n="accounts.addConfigBtn">添加配置</span>
+                  </button>
+                  <span id="cloudmail-inline-status" class="moemail-status-text"></span>
+                </div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.5;">域名将在保存或测试连接时自动从服务器拉取，无需手动填写。</div>
+              </div>
+            </div>
+            <div id="cloudmail-inline-list" class="moemail-config-list"></div>
+          </div>
+        </div>
+
+        <!-- 账号列表 -->
+        <div class="card" style="padding:0;overflow:hidden;display:flex;flex-direction:column;min-height:420px;">
+          <div class="settings-group-title" style="display:flex;align-items:center;justify-content:space-between;padding:20px 24px 16px;border-bottom:1px solid var(--border);flex-shrink:0;">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <img src="assets/outlook.png" style="width:18px;height:18px;border-radius:4px;">
+              <span data-i18n="accounts.outlookTitle">微软邮箱</span>
+              <span style="font-size:12px;font-weight:600;color:var(--text-muted);padding:3px 8px;background:var(--bg-subtle);border-radius:6px;"><span data-i18n="accounts.count">共</span> <span id="outlook-count">0</span> <span data-i18n="accounts.countUnit">个</span></span>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button onclick="openAddOutlookModal()" class="btn btn-dark btn-sm">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                <span data-i18n="accounts.addAccount">添加账号</span>
+              </button>
+              <button onclick="clearRegisteredOutlookAccounts()" class="btn btn-secondary btn-sm" data-i18n="accounts.clearRegistered">清除已注册</button>
+              <button onclick="clearAllOutlookAccounts()" class="btn btn-danger btn-sm" data-i18n="common.clearAll">清空全部</button>
+            </div>
+          </div>
+          <div style="flex:1;overflow-x:auto;min-height:0;">
+            <table style="width:100%;">
+              <thead><tr>
+                <th style="width:40px;padding:10px 16px;" data-i18n="accounts.thIndex">#</th>
+                <th style="padding:10px 8px;" data-i18n="accounts.thEmail">邮箱地址</th>
+                <th style="width:80px;padding:10px 8px;" data-i18n="accounts.thStatus">状态</th>
+                <th style="width:120px;padding:10px 8px;" data-i18n="accounts.thAddedAt">添加时间</th>
+                <th style="width:60px;padding:10px 16px;text-align:right;" data-i18n="accounts.thActions">操作</th>
+              </tr></thead>
+              <tbody id="parsed-outlook-body"></tbody>
+            </table>
+          </div>
+          <div id="outlook-pager" style="display:none;padding:12px 16px;justify-content:space-between;align-items:center;font-size:12px;color:var(--text-secondary);border-top:1px solid var(--border);flex-shrink:0;">
+            <span id="outlook-pager-info"></span>
+            <div style="display:flex;gap:8px;">
+              <button onclick="changeOutlookPage(-1)" id="outlook-pager-prev" class="btn btn-secondary btn-sm" data-i18n="common.prevPage">上一页</button>
+              <button onclick="changeOutlookPage(1)" id="outlook-pager-next" class="btn btn-secondary btn-sm" data-i18n="common.nextPage">下一页</button>
+            </div>
+          </div>
+        </div>
+
+          <!-- MailNest 配置 -->
+          <div class="card" style="flex-shrink:0;margin-bottom:20px;">
+              <div class="settings-group">
+                  <div class="settings-group-title"
+                       style="display:flex;align-items:center;justify-content:space-between;">
+                      <div style="display:flex;align-items:center;gap:10px;">
+                          <svg id="mailnest-icon" width="18" height="18" data-name="mailnest-icon"
+                               xmlns="http://www.w3.org/2000/svg" viewBox="0 0 183 173">
+                              <defs>
+                                  <style>
+                                      .cls-1 {
+                                          fill: #fff;
+                                      }
+                                  </style>
+                              </defs>
+                              <path d="M149.29,152.09c-16.99,7.44-19.61,1.05-28.15,5.87h17.22c-7.73,11-24.54,5.73-31.95,6.26-8.68.63-17.04,3.96-25.77,3.51-11.01-.57-20.76-4.18-30.16-9.4,16.2-1.43,20.85,5.07,39.15,2.43l-5.93-2.86c14.19-5.88,8.11-3.03,22.62-1.69,8.27-3.06,15.4-6.74,22.41-11.75l-19.65.99,5.51-4.62c-4.63.86-7.93,1.92-11.89,3.47-22.53,8.79-60.2,19.3-79.17-.74-1.04-1.09-1.52-4.01-.78-4.95,3.43-4.37,13.59,10.32,27.37,8.15l-6.75-5.27,13.19.98c5.01.37,4.36,7.31,26.37-.05-6.52-1.27-11.58-2.21-17.42-3.01-12.25-1.67-16.05,1.93-28.43-9.57l3.62-.97c-12.1-8.44-28.76-16.76-34.65-31.51-.49-1.23.6-4.19,1.66-4.68,5.44-2.51,6.15,8.09,13.18,13-3.34-10.4-5.8-19.32-3.53-29.91.84-3.91,3.24-9.34,7.74-8.95,1.06.09,2.5,2.52,1.94,3.69-8.03,16.58.35,38.17,15.9,48.74l.29-29.62c.04-4.01,3.2-7.6,7.5-7.6l81.48.08c4.65,0,7.12,3.11,7.09,7.33l-.17,24.63c-18.29,15.4-37.32,18.58-60.21,18.12,28.74,5.65,67.93-8.09,76.11-39.1,1.89-7.15.77-14.66-1.69-21.33-.45-1.21,2.22-3.57,3.23-3.14s3.32,1.9,3.77,2.96c5.89,13.56,2.83,28.3-5.65,40.51-8.18,11.78-20.76,18.68-33.44,25.04,23.17-1.26,23.3-7.35,34.97-22.79,10.5-13.91,7.61-24.11,12.27-23.33,6.01,1,1.6,13.83-.06,16.73l-9.57,16.73c7.52-2.13,7.92-11.3,12.46-11.23,3.22.05,3.7,6.68-3.5,13.77-11.39,11.21-19.4,7.63-30.89,20.99,12.72.91,21.15-11.29,25.45-11.38,2.92-.06-1.84,10.52-13.1,15.45ZM96.46,124.22l35.23-31.84c-13.24,7.1-23.58,16.45-35.65,24.57-3.48,2.34-7.17,1.7-10.45-.71-10.33-7.59-19.95-14.88-31.19-22.15,5.52,7.01,11.97,11.55,17.92,17.54s17.22,18.84,24.14,12.59Z"/>
+                              <path d="M102.05,78.43c4.96-7.1,7.92-14.67,3.81-23.18-.95,8.35-4.11,15.1-11.91,18.81-4.73,2.25-10.86,4.11-16.45,4.15l-34.33.23,32.63-31.47c17.05-16.44,16.03-36.89,37.55-39.73,9.66-1.27,18.53,3.02,23.35,11.39l13.59,1.32c-4.22,3.93-8.6,5.43-11.16,9.71-3.41,5.7,7.62,30.02-10.64,49.16-8.72.08-16.29.11-26.43-.39ZM126.67,24.47c0-2.33-1.89-4.22-4.22-4.22s-4.22,1.89-4.22,4.22,1.89,4.22,4.22,4.22,4.22-1.89,4.22-4.22Z"/>
+                              <path d="M36.3,135.84c-8.93-.4-18.07-4.1-24.22-10.39-3.67-3.75-4.98-10.13.21-13.51,6.98,15.26,12.1,8.42,24.01,23.89Z"/>
+                          </svg>
+                          <span data-i18n="accounts.mailnestTitle">MailNest 临时邮箱</span>
+                      </div>
+                      <span id="settings-mailnest-summary"
+                            style="font-size:12px;font-weight:600;color:var(--text-muted);padding:4px 10px;background:var(--bg-subtle);border-radius:6px;"
+                            data-i18n="mailnest.summaryNone">未配置</span>
+                  </div>
+                  <div class="moemail-add-section">
+                      <div class="moemail-add-header">
+                          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+                               stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                              <path d="M12 5v14M5 12h14"/>
+                          </svg>
+                          <span data-i18n="accounts.addConfig">添加新配置</span>
+                      </div>
+                      <div class="moemail-add-body">
+                          <div class="moemail-input-row">
+                              <div class="moemail-input-group" style="flex:2;">
+                                  <label data-i18n="accounts.apiKey">API Key</label>
+                                  <input type="text" id="mailnest-inline-apikey" placeholder="YOUR_API_KEY"
+                                         class="form-input">
+                              </div>
+                              <div class="moemail-input-group" style="flex:2;">
+                                  <label data-i18n="accounts.projectCode">项目代码</label>
+                                  <input type="text" id="mailnest-inline-project-code" placeholder="aws001"
+                                         class="form-input">
+                              </div>
+                          </div>
+                          <div class="moemail-action-row">
+                              <button onclick="inlineTestMailNest()" class="btn btn-secondary btn-sm"
+                                      id="mailnest-inline-test-btn">
+                                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+                                       stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                      <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
+                                      <polyline points="22 4 12 14.01 9 11.01"/>
+                                  </svg>
+                                  <span data-i18n="accounts.testConnection">测试连接</span>
+                              </button>
+                              <button onclick="inlineAddMailNest()" class="btn btn-dark btn-sm">
+                                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+                                       stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                      <path d="M12 5v14M5 12h14"/>
+                                  </svg>
+                                  <span data-i18n="accounts.addConfigBtn">添加配置</span>
+                              </button>
+                              <span id="mailnest-inline-status" class="moemail-status-text"></span>
+                          </div>
+                      </div>
+                  </div>
+              </div>
+          </div>
+
+          <!-- Remail 配置 -->
+          <div class="card" style="flex-shrink:0;margin-bottom:20px;">
+              <div class="settings-group">
+                  <div class="settings-group-title"
+                       style="display:flex;align-items:center;justify-content:space-between;">
+                      <div style="display:flex;align-items:center;gap:10px;">
+                          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                              <polyline points="22,6 12,13 2,6"/>
+                          </svg>
+                          <span>Remail 临时邮箱</span>
+                      </div>
+                      <button id="btn-add-remail-config" class="btn btn-secondary btn-sm">
+                          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+                               stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                              <path d="M12 5v14M5 12h14"/>
+                          </svg>
+                          <span>添加配置</span>
+                      </button>
+                  </div>
+                  <div id="remail-configs-list" class="moemail-list-section">
+                      <div style="text-align:center;padding:40px;color:var(--text-muted);font-size:13px;">加载中...</div>
+                  </div>
+              </div>
+          </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+</div>
+
+<!-- 添加 Outlook 账号模态框 -->
+<div id="add-outlook-modal" class="modal-overlay">
+  <div class="modal-content" style="max-width:520px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <img src="assets/outlook.png" style="width:22px;height:22px;border-radius:4px;">
+        <h3 style="font-size:16px;font-weight:700;" data-i18n="accounts.addModalTitle">添加微软邮箱账号</h3>
+      </div>
+      <button onclick="closeAddOutlookModal()" style="background:none;border:none;color:var(--text-muted);font-size:28px;cursor:pointer;line-height:1;">&times;</button>
+    </div>
+    <!-- 导入文件 -->
+    <div style="margin-bottom:16px;">
+      <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;" data-i18n="accounts.importFile">导入文件</div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <button onclick="importOutlookFile()" class="btn btn-secondary" style="flex:1;">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <span data-i18n="accounts.selectTxt">选择 TXT 文件</span>
+        </button>
+        <span style="font-size:11px;color:var(--text-muted);" data-i18n="accounts.perLine">每行一个账号</span>
+      </div>
+    </div>
+    <!-- 分隔线 -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+      <div style="flex:1;height:1px;background:var(--border);"></div>
+      <span style="font-size:11px;color:var(--text-muted);font-weight:500;" data-i18n="accounts.orManual">或手动输入</span>
+      <div style="flex:1;height:1px;background:var(--border);"></div>
+    </div>
+    <!-- 手动输入 -->
+    <div style="margin-bottom:20px;">
+      <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;" data-i18n="accounts.manualInput">手动输入</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;" data-i18n="accounts.manualFormat">格式：邮箱----密码----ClientID----RefreshToken----imap/graph，每行一个（不填最后一段默认 imap）</div>
+      <textarea id="cfg-outlook-data" class="form-input" rows="6" placeholder="user@outlook.com----password----clientid----refreshtoken" data-i18n-placeholder="accounts.manualPlaceholder" style="resize:vertical;font-family:var(--font-mono);font-size:12px;"></textarea>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;">
+      <button onclick="closeAddOutlookModal()" class="btn btn-secondary" data-i18n="common.cancel">取消</button>
+      <button onclick="addOutlookAccounts()" class="btn btn-dark" data-i18n="accounts.addToList">添加到列表</button>
+    </div>
+  </div>
+</div>
+
+<!-- MoeMail 配置管理模态框 -->
+<div id="moemail-modal" class="modal-overlay">
+  <div class="modal-content" style="max-width:700px;max-height:85vh;display:flex;flex-direction:column;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-shrink:0;">
+      <h3 style="font-size:16px;font-weight:700;" data-i18n="accounts.moemailModalTitle">MoeMail 配置管理</h3>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span id="moemail-count" class="badge" style="font-size:11px;">0 <span data-i18n="accounts.countUnit">个</span></span>
+        <button onclick="closeMoeMailModal()" style="background:none;border:none;color:var(--text-muted);font-size:28px;cursor:pointer;line-height:1;">&times;</button>
+      </div>
+    </div>
+
+    <div style="flex:1;overflow-y:auto;">
+      <!-- 添加新配置 -->
+      <div style="margin-bottom:20px;padding:16px;background:var(--bg-subtle);border-radius:var(--radius);border:1px solid var(--border);">
+        <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:12px;" data-i18n="accounts.addNewConfig">添加新配置</div>
+        <div class="form-group" style="margin-bottom:12px;">
+          <label style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;display:block;" data-i18n="accounts.configName">配置名称</label>
+          <input type="text" id="moemail-name" placeholder="例如：主账号" data-i18n-placeholder="accounts.moemailNamePlaceholder" class="form-input">
+        </div>
+        <div class="form-group" style="margin-bottom:12px;">
+          <label style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;display:block;" data-i18n="accounts.apiUrl">API URL</label>
+          <input type="text" id="moemail-url" placeholder="https://moemail.app" class="form-input">
+        </div>
+        <div class="form-group" style="margin-bottom:12px;">
+          <label style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;display:block;" data-i18n="accounts.apiKey">API Key</label>
+          <input type="text" id="moemail-apikey" placeholder="YOUR_API_KEY" class="form-input">
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button onclick="testMoeMailConnection()" class="btn btn-secondary btn-sm" data-i18n="accounts.testConnection">测试连接</button>
+          <button onclick="addMoeMailConfig()" class="btn btn-dark btn-sm" data-i18n="accounts.addConfigBtn">添加配置</button>
+        </div>
+        <div id="moemail-test-result" style="margin-top:12px;font-size:12px;display:none;"></div>
+      </div>
+
+      <!-- 配置列表 -->
+      <div style="border-top:1px solid var(--border);padding-top:16px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <span style="font-size:13px;font-weight:600;color:var(--text);" data-i18n="accounts.configList">配置列表</span>
+          <button onclick="clearAllMoeMailConfigs()" class="btn btn-danger btn-sm" data-i18n="common.clearAll">清空全部</button>
+        </div>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead><tr>
+              <th style="width:40px;">#</th>
+              <th data-i18n="accounts.thName">名称</th>
+              <th data-i18n="accounts.thUrl">URL</th>
+              <th style="width:60px;" data-i18n="accounts.thStatus">状态</th>
+              <th style="width:100px;text-align:right;" data-i18n="accounts.thActions">操作</th>
+            </tr></thead>
+            <tbody id="moemail-config-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Remail 配置模态框 -->
+<div id="remail-modal" class="modal-overlay">
+  <div class="modal-content" style="max-width:600px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+      <h3 style="font-size:16px;font-weight:700;" id="remail-modal-title">添加 Remail 配置</h3>
+      <button id="btn-close-remail-modal-x" style="background:none;border:none;color:var(--text-muted);font-size:28px;cursor:pointer;line-height:1;">&times;</button>
+    </div>
+    <div style="max-height:60vh;overflow-y:auto;">
+      <input type="hidden" id="remail-edit-index" value="-1">
+      
+      <div class="form-group" style="margin-bottom:12px;">
+        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;display:block;">配置名称</label>
+        <input type="text" id="remail-form-name" placeholder="例如：主配置" class="form-input">
+      </div>
+      
+      <div class="form-group" style="margin-bottom:12px;">
+        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;display:block;">API Key</label>
+        <input type="text" id="remail-form-apikey" placeholder="YOUR_API_KEY" class="form-input">
+      </div>
+      
+      <div class="form-group" style="margin-bottom:12px;">
+        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;">
+          <span>API URL</span>
+        </label>
+        <input type="text" id="remail-form-apiurl" value="https://remail.aishop6.com" class="form-input">
+      </div>
+      
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div class="form-group" style="margin-bottom:0;">
+          <label style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;">
+            <span>项目名称</span>
+            <button type="button" id="btn-refresh-remail-projects" class="btn btn-secondary" style="padding:2px 8px;font-size:11px;height:auto;" title="刷新项目和产品列表">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 12a9 9 0 11-6.22-8.56"/>
+                <path d="M21 3v6h-6"/>
+              </svg>
+            </button>
+          </label>
+          <select id="remail-form-project" class="form-input">
+            <option value="">请先刷新加载项目列表</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;display:block;">产品名称</label>
+          <select id="remail-form-product" class="form-input">
+            <option value="">请先选择项目</option>
+          </select>
+        </div>
+      </div>
+      
+      <div class="form-group" style="margin-bottom:12px;">
+        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;display:block;">服务模式</label>
+        <select id="remail-form-mode" class="form-input">
+          <option value="package">接包模式（短效，适合一次性验证码）</option>
+          <option value="purchase">购买模式（长效，可普通收信）</option>
+        </select>
+      </div>
+      
+      <div class="form-group" style="margin-bottom:12px;">
+        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;display:block;">邮箱后缀</label>
+        <input type="text" id="remail-form-suffix" placeholder="com.cn（可选，留空自动）" class="form-input">
+      </div>
+      
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div class="form-group" style="margin-bottom:0;">
+          <label style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;display:block;">超时时间（秒）</label>
+          <input type="number" id="remail-form-timeout" value="300" min="60" class="form-input">
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;display:block;">轮询周期（秒）</label>
+          <input type="number" id="remail-form-poll" value="3" min="1" class="form-input">
+        </div>
+      </div>
+    </div>
+    
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">
+      <button id="btn-cancel-remail-config" class="btn btn-secondary">取消</button>
+      <button id="btn-save-remail-config" class="btn btn-dark">保存</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/i18n.js"></script>
+<script>
+// 全局变量初始化 - 确保在所有脚本加载前定义
+var remailConfigs = [];
+</script>
+<script src="js/accounts.js"></script>
+<script src="js/moemail.js"></script>
+<script src="js/cloudmail.js"></script>
+<script src="js/mailnest.js"></script>
+<script src="js/remail.js"></script>
+<script src="js/task.js"></script>
+<script src="js/overview.js"></script>
+<script src="js/subscription.js"></script>
+<script src="js/proxy_pool.js"></script>
+<script src="js/email_providers.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

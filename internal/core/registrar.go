@@ -1,0 +1,453 @@
+package core
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"math/rand"
+	"strings"
+	"time"
+
+	http "github.com/bogdanfinn/fhttp"
+	tls_client "github.com/bogdanfinn/tls-client"
+
+	"reg_go/internal/browser"
+	"reg_go/internal/crypto"
+	"reg_go/internal/email"
+	httputil "reg_go/internal/http"
+)
+
+// Registrar 完整的注册流程
+type Registrar struct {
+	Cfg      *Config
+	Client   tls_client.HttpClient
+	Cookies  map[string]string
+	Identity *browser.BrowserIdentity
+	FPCtx    *browser.FingerprintContext
+
+	VisitorID        string
+	Email            string
+	EmailSvc         email.TempEmailService // 临时邮箱服务
+	ClientID         string
+	ClientSecret     string
+	DeviceCode       string
+	UserCode         string
+	WorkflowHandle   string
+	WorkflowID       string
+	WorkflowState    string
+	Ubid             string
+	RegCode          string
+	SignState        string
+	AuthCode         string
+	SSOState         string
+	WdcCSRFToken     string
+	SSOToken         string
+	KiroCodeVerifier string
+	KiroState        string
+	KiroClientID     string
+	KiroClientSecret string
+	KiroRedirectPort int
+
+	// 客户端扩展: 任务上下文
+	Ctx       context.Context
+	TaskLabel string
+
+	// 本地加密
+	JWE *crypto.JWEEncryptor
+
+	// Outlook 模式: 发送验证码前的邮件数量
+	OutlookMailCount int
+}
+
+// NewRegistrar 创建注册器
+func NewRegistrar(cfg *Config) *Registrar {
+	// 按代理绑定稳定指纹：同一出口 IP 下短时间内重复使用同一硬件身份，
+	// 只有 lsubid 前缀 / webpackHash 等真实浏览器会话间也会变的字段每次刷新。
+	identity := browser.IdentityForProxy(cfg.Proxy)
+	log.Printf("[指纹] Chrome: %s | GPU: %s | 内存: %dGB | 核心: %d | 分辨率: %dx%d (%d-bit)",
+		identity.ChromeVer, identity.GPUModel, identity.DeviceMemory, identity.HardwareConcurrency,
+		identity.Screen.Width, identity.Screen.Height, identity.Screen.ColorDepth)
+
+	client := httputil.NewTLSClient(cfg.Proxy, true, identity.ChromeVer)
+	return &Registrar{
+		Cfg:       cfg,
+		Client:    client,
+		Cookies:   make(map[string]string),
+		Identity:  identity,
+		FPCtx:     browser.NewFPContext(identity),
+		VisitorID: httputil.VisitorID(),
+		JWE:       &crypto.JWEEncryptor{},
+	}
+}
+
+// isRetryableError 判断是否为可重试的瞬态网络错误（EOF、连接重置等）
+func isRetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errMsg := err.Error()
+	return strings.Contains(errMsg, "EOF") ||
+		strings.Contains(errMsg, "connection reset") ||
+		strings.Contains(errMsg, "broken pipe") ||
+		strings.Contains(errMsg, "connection refused") ||
+		strings.Contains(errMsg, "i/o timeout") ||
+		strings.Contains(errMsg, "TLS handshake timeout") ||
+		strings.Contains(errMsg, "unexpected EOF")
+}
+
+// retryBackoff 计算重试退避时间（1-2秒 + 随机抖动）
+func retryBackoff(attempt int) time.Duration {
+	base := time.Duration(1000+attempt*500) * time.Millisecond
+	jitter := time.Duration(rand.Intn(500)) * time.Millisecond
+	return base + jitter
+}
+
+// DoPost 发送 POST 请求（带自动重试）
+func (r *Registrar) DoPost(url string, payload interface{}, headers map[string]string) ([]byte, map[string][]string, error) {
+	const maxRetries = 2
+	var lastErr error
+	var payloadBytes []byte
+	if payload != nil {
+		payloadBytes, _ = json.Marshal(payload)
+	}
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			log.Printf("[HTTP] POST 重试 (%d/%d), 等待退避...", attempt, maxRetries)
+			time.Sleep(retryBackoff(attempt))
+		}
+
+		var body io.Reader
+		if payloadBytes != nil {
+			body = bytes.NewReader(payloadBytes)
+		}
+		req, err := http.NewRequest("POST", url, body)
+		if err != nil {
+			return nil, nil, err
+		}
+		httputil.SetHeaders(req, headers)
+		resp, err := r.Client.Do(req)
+		if err != nil {
+			lastErr = err
+			if isRetryableError(err) {
+				continue
+			}
+			return nil, nil, err
+		}
+		defer resp.Body.Close()
+		data, _ := io.ReadAll(resp.Body)
+		return data, resp.Header, nil
+	}
+	return nil, nil, lastErr
+}
+
+// DoGet 发送 GET 请求，返回完整信息（带自动重试）
+func (r *Registrar) DoGet(url string, headers map[string]string) ([]byte, int, map[string][]string, error) {
+	const maxRetries = 2
+	var lastErr error
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			log.Printf("[HTTP] GET 重试 (%d/%d), 等待退避...", attempt, maxRetries)
+			time.Sleep(retryBackoff(attempt))
+		}
+
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return nil, 0, nil, err
+		}
+		httputil.SetHeaders(req, headers)
+		resp, err := r.Client.Do(req)
+		if err != nil {
+			lastErr = err
+			if isRetryableError(err) {
+				continue
+			}
+			return nil, 0, nil, err
+		}
+		defer resp.Body.Close()
+		data, _ := io.ReadAll(resp.Body)
+		return data, resp.StatusCode, resp.Header, nil
+	}
+	return nil, 0, nil, lastErr
+}
+
+// DoPostRaw 发送 POST 请求，返回状态码（带自动重试）
+func (r *Registrar) DoPostRaw(url string, payload interface{}, headers map[string]string) ([]byte, int, map[string][]string, error) {
+	const maxRetries = 2
+	var lastErr error
+	var payloadBytes []byte
+	if payload != nil {
+		payloadBytes, _ = json.Marshal(payload)
+	}
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			log.Printf("[HTTP] POST 重试 (%d/%d), 等待退避...", attempt, maxRetries)
+			time.Sleep(retryBackoff(attempt))
+		}
+
+		var body io.Reader
+		if payloadBytes != nil {
+			body = bytes.NewReader(payloadBytes)
+		}
+		req, err := http.NewRequest("POST", url, body)
+		if err != nil {
+			return nil, 0, nil, err
+		}
+		httputil.SetHeaders(req, headers)
+		resp, err := r.Client.Do(req)
+		if err != nil {
+			lastErr = err
+			if isRetryableError(err) {
+				continue
+			}
+			return nil, 0, nil, err
+		}
+		defer resp.Body.Close()
+		data, _ := io.ReadAll(resp.Body)
+		return data, resp.StatusCode, resp.Header, nil
+	}
+	return nil, 0, nil, lastErr
+}
+
+// GenFP 生成指纹
+func (r *Registrar) GenFP(pageType, eventType string, emailLen int, emailAddr string) string {
+	return r.GenFPWithTime(pageType, eventType, 0, emailLen, emailAddr)
+}
+
+// GenFPWithTime 生成指纹（指定页面停留时间）
+func (r *Registrar) GenFPWithTime(pageType, eventType string, timeOnPage, emailLen int, emailAddr string) string {
+	did := r.Cfg.DirectoryID
+	var loc, ref string
+
+	switch pageType {
+	case "signin":
+		loc = fmt.Sprintf("%s/platform/%s/login?workflowStateHandle=%s", r.Cfg.SigninBase, did, r.WorkflowHandle)
+	case "signup":
+		loc = fmt.Sprintf("%s/platform/%s/signup?workflowStateHandle=%s", r.Cfg.SigninBase, did, r.WorkflowHandle)
+	default: // profile
+		if eventType == "PageSubmit" {
+			loc = fmt.Sprintf("%s/?workflowID=%s#/signup/enter-email", r.Cfg.ProfileBase, r.WorkflowID)
+		} else {
+			loc = fmt.Sprintf("%s/?workflowID=%s#/signup/start", r.Cfg.ProfileBase, r.WorkflowID)
+		}
+		if r.WorkflowID == "" {
+			loc = r.Cfg.ProfileBase + "/"
+		}
+	}
+
+	if pageType == "profile" {
+		ref = fmt.Sprintf("%s/platform/%s/signup?workflowStateHandle=%s", r.Cfg.SigninBase, did, r.WorkflowHandle)
+	} else {
+		ref = r.Cfg.ViewBase + "/"
+	}
+
+	fpJSON := browser.GenerateFingerprintJSON(r.Identity, loc, ref, r.FPCtx, pageType, eventType, timeOnPage, emailLen, emailAddr)
+	return crypto.EncryptFingerprint(fpJSON)
+}
+
+// Step1OIDC OIDC 注册
+func (r *Registrar) Step1OIDC() error {
+	log.Println("[1] OIDC 注册")
+	body, _, err := r.DoPost(r.Cfg.OIDCBase+"/client/register", map[string]interface{}{
+		"clientName": "Amazon Q Developer for command line",
+		"clientType": "public",
+		"scopes":     []string{"codewhisperer:completions", "codewhisperer:analysis", "codewhisperer:conversations", "codewhisperer:transformations", "codewhisperer:taskassist"},
+	}, map[string]string{"Content-Type": "application/json"})
+	if err != nil {
+		return err
+	}
+	var data map[string]interface{}
+	json.Unmarshal(body, &data)
+	r.ClientID, _ = data["clientId"].(string)
+	r.ClientSecret, _ = data["clientSecret"].(string)
+	if r.ClientID == "" {
+		return fmt.Errorf("OIDC 注册失败: %s", string(body))
+	}
+	return nil
+}
+
+// Step2Device 设备授权
+func (r *Registrar) Step2Device() error {
+	log.Println("[2] 设备授权")
+	body, _, err := r.DoPost(r.Cfg.OIDCBase+"/device_authorization", map[string]interface{}{
+		"clientId": r.ClientID, "clientSecret": r.ClientSecret,
+		"startUrl": r.Cfg.StartURL,
+	}, map[string]string{"Content-Type": "application/json"})
+	if err != nil {
+		return err
+	}
+	var data map[string]interface{}
+	json.Unmarshal(body, &data)
+	r.DeviceCode, _ = data["deviceCode"].(string)
+	r.UserCode, _ = data["userCode"].(string)
+	log.Printf("user_code=%s", r.UserCode)
+	return nil
+}
+
+// Step3Email 获取邮箱 (临时邮箱、Outlook)
+func (r *Registrar) Step3Email() error {
+	if r.Cfg.UseOutlook && r.Cfg.OutlookAccount != nil {
+		log.Println("[3] 使用 Outlook 邮箱")
+		r.Email = r.Cfg.OutlookAccount.Email
+		log.Printf("email=%s", r.Email)
+		return nil
+	}
+	if r.Cfg.UseCloudMail && r.Cfg.CloudMailProvider != nil {
+		log.Println("[3] 使用 Cloud-Mail 邮箱")
+		r.EmailSvc = email.NewCloudMailService(r.Cfg.CloudMailProvider)
+		r.Email = r.EmailSvc.GetAddress()
+		log.Printf("email=%s", r.Email)
+		return nil
+	}
+	if r.Cfg.UseMoeMail && r.Cfg.MoeMailProvider != nil {
+		log.Println("[3] 使用 MoeMail 邮箱（已创建）")
+		r.EmailSvc = email.NewMoEmailServiceFromProvider(r.Cfg.MoeMailProvider)
+		r.Email = r.EmailSvc.GetAddress()
+		log.Printf("email=%s", r.Email)
+		return nil
+	}
+	if r.Cfg.UseMailNest && r.Cfg.MailNestProvider != nil {
+		log.Println("[3] 使用 MailNest 邮箱")
+		r.EmailSvc = email.NeMailNestServiceFromProvider(r.Cfg.MailNestProvider)
+		r.Email = r.EmailSvc.GetAddress()
+		log.Printf("email=%s", r.Email)
+		return nil
+	}
+	if r.Cfg.UseRemail && r.Cfg.RemailProvider != nil {
+		log.Println("[3] 使用 Remail 邮箱")
+		r.EmailSvc = email.NewRemailServiceFromProvider(r.Cfg.RemailProvider)
+		r.Email = r.EmailSvc.GetAddress()
+		log.Printf("email=%s", r.Email)
+		return nil
+	}
+	log.Println("[3] 创建临时邮箱")
+	// 如果未配置 MoEmail URL，从已保存的 MoeMail 配置中自动读取
+	baseURL := r.Cfg.MoEmailBaseURL
+	apiKey := r.Cfg.MoEmailAPIKey
+	if baseURL == "" {
+		configs := email.GetMoeMailConfigs()
+		if len(configs) > 0 {
+			baseURL = configs[0].URL
+			apiKey = configs[0].APIKey
+			log.Printf("[MoEmail] 自动使用已保存配置: %s", configs[0].Name)
+		}
+	}
+	r.EmailSvc = email.NewMoEmailService(baseURL, apiKey)
+	r.Email = r.EmailSvc.Create()
+	log.Printf("email=%s", r.Email)
+	return nil
+}
+
+// Step4Portal Portal 初始化
+func (r *Registrar) Step4Portal() error {
+	log.Println("[4] Portal 初始化")
+	r.Cookies["awsccc"] = httputil.Awsccc()
+
+	redirect := fmt.Sprintf("%s/start/#/device?user_code=%s", r.Cfg.ViewBase, r.UserCode)
+	url := fmt.Sprintf("%s/login?directory_id=view&redirect_url=%s", r.Cfg.PortalBase, redirect)
+
+	h := map[string]string{
+		"Accept":       "application/json, text/plain, */*",
+		"Content-Type": "application/json",
+		"Origin":       r.Cfg.ViewBase,
+		"Referer":      r.Cfg.ViewBase + "/",
+		"User-Agent":   r.Identity.UA,
+	}
+
+	body, _, respH, err := r.DoGet(url, h)
+	if err != nil {
+		return err
+	}
+	httputil.SaveCookies(r.Cookies, respH)
+
+	var data map[string]interface{}
+	json.Unmarshal(body, &data)
+
+	rurl, _ := data["redirectUrl"].(string)
+	if strings.Contains(rurl, "workflowStateHandle=") {
+		r.WorkflowHandle = httputil.SplitAfter(rurl, "workflowStateHandle=")
+	}
+	if csrf, ok := data["csrfToken"].(string); ok {
+		r.Cookies["loginCsrfToken"] = csrf
+	}
+	if r.WorkflowHandle == "" {
+		return fmt.Errorf("Portal 未返回 workflow handle")
+	}
+
+	loginURL := fmt.Sprintf("%s/platform/%s/login?workflowStateHandle=%s",
+		r.Cfg.SigninBase, r.Cfg.DirectoryID, r.WorkflowHandle)
+	return r.FetchD2CToken(r.Cfg.SigninBase, loginURL)
+}
+
+// Step5WorkflowInit 工作流初始化
+func (r *Registrar) Step5WorkflowInit() error {
+	log.Println("[5] 工作流初始化")
+	api := fmt.Sprintf("%s/platform/%s/api/execute", r.Cfg.SigninBase, r.Cfg.DirectoryID)
+	ref := fmt.Sprintf("%s/platform/%s/login?workflowStateHandle=%s",
+		r.Cfg.SigninBase, r.Cfg.DirectoryID, r.WorkflowHandle)
+
+	fp := r.GenFP("signin", "first_load", 0, "")
+	rid := NewUUID()
+	h := r.BuildHeaders(ref, r.Cfg.SigninBase)
+	h["x-amzn-requestid"] = rid
+	h["x-amz-date"] = GmtDate()
+	h["priority"] = "u=1, i"
+
+	body, _, respH, err := r.DoPostRaw(api, map[string]interface{}{
+		"stepId": "", "workflowStateHandle": r.WorkflowHandle,
+		"inputs":    []interface{}{map[string]string{"input_type": "FingerPrintRequestInput", "fingerPrint": fp}},
+		"requestId": rid,
+	}, h)
+	if err != nil {
+		return err
+	}
+	httputil.SaveCookies(r.Cookies, respH)
+
+	var data map[string]interface{}
+	json.Unmarshal(body, &data)
+	if wh, ok := data["workflowStateHandle"].(string); ok {
+		r.WorkflowHandle = wh
+	}
+
+	if data["stepId"] == "start" {
+		fp = r.GenFP("signin", "PageLoad", 0, "")
+		rid = NewUUID()
+		h = r.BuildHeaders(ref, r.Cfg.SigninBase)
+		h["x-amzn-requestid"] = rid
+		h["x-amz-date"] = GmtDate()
+		h["priority"] = "u=1, i"
+
+		body, _, respH, err = r.DoPostRaw(api, map[string]interface{}{
+			"stepId": "start", "workflowStateHandle": r.WorkflowHandle,
+			"inputs":    []interface{}{map[string]string{"input_type": "FingerPrintRequestInput", "fingerPrint": fp}},
+			"requestId": rid,
+		}, h)
+		if err != nil {
+			return err
+		}
+		httputil.SaveCookies(r.Cookies, respH)
+		json.Unmarshal(body, &data)
+		if wh, ok := data["workflowStateHandle"].(string); ok {
+			r.WorkflowHandle = wh
+		}
+	}
+	return nil
+}
+
+// NewUUID 生成 UUID
+func NewUUID() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+// GmtDate 生成 GMT 日期字符串
+func GmtDate() string {
+	return time.Now().UTC().Format("Mon, 02 Jan 2006 15:04:05 GMT")
+}

@@ -1,0 +1,57 @@
+# Build output
+build/bin/
+build/windows/
+build/linux/
+build/appicon.png
+build/darwin/iconfile.icns
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.syso
+
+# Frontend build artifacts
+frontend/dist/
+frontend/node_modules/
+package-lock.json
+
+# Go
+*.test
+*.out
+*.prof
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temp / logs
+*.tmp
+*.log
+*.log.*
+
+# Data & user config (runtime files, not source)
+results/
+output/
+
+# Wails
+wailsjs/
+
+# Secrets / credentials
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Claude Code local session data
+.claude/

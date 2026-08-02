@@ -1,0 +1,1264 @@
+// ===== 国际化 (i18n) =====
+// 翻译字典 + t/applyI18n/setLanguage/init
+// 用法:
+//   - HTML 文本: <span data-i18n="nav.overview">概览</span>
+//   - HTML placeholder: <input data-i18n-placeholder="form.search" placeholder="搜索">
+//   - HTML title: <span data-i18n-title="tip.help" title="帮助">?</span>
+//   - JS: t('toast.saved') / t('toast.deleted', {n: 3})
+
+(function(){
+  'use strict';
+
+  var DICT = {
+    zh: {
+      nav: {
+        overview: '概览', logs: '运行日志', register: '注册', accounts: '邮箱池', subscription: '订阅',
+        about: '关于', settings: '设置', toggleTheme: '切换主题', checkUpdate: '检查更新',
+        language: '语言：中文 (点击切换)'
+      },
+      page: {
+        overview: '概览', logs: '运行日志', register: '注册', accounts: '邮箱池', subscription: '订阅',
+        about: '关于', settings: '设置'
+      },
+      common: {
+        loading: '加载中...', loadFailed: '加载失败', noData: '暂无数据', notSet: '未配置',
+        copy: '复制', save: '保存', cancel: '取消', confirm: '确认', delete: '删除',
+        reset: '重置', clear: '清除', clearAll: '清空全部', select: '选择', close: '关闭',
+        ok: '确定', edit: '编辑', add: '添加', test: '测试', refresh: '刷新',
+        retry: '重试', back: '返回', next: '下一步', prev: '上一步', open: '打开',
+        all: '全部', random: '随机', poll: '轮询', enabled: '已启用', disabled: '未启用',
+        prevPage: '上一页', nextPage: '下一页'
+      },
+      status: {
+        idle: '空闲', running: '运行中', success: '成功', failed: '失败',
+        registered: '已注册', unregistered: '未注册', pending: '待获取', fetching: '获取中',
+        ready: '已就绪', suspended: '已封禁', tested: '已测试', untested: '未测试',
+        available: '可用', unavailable: '不可用', configured: '已配置', notConfigured: '未配置',
+        connecting: '连接中', detecting: '检测中', notStarted: '未开始'
+      },
+      overview: {
+        kiroAccounts: 'Kiro 账号数', successRate: '注册成功率',
+        liveStatus: '实时状态', progress: '进度', success: '成功', failed: '失败',
+        elapsed: '已耗时', eta: '预计剩余', avg: '平均耗时', rate: '成功率',
+        newTask: '新建任务', stop: '停止'
+      },
+      about: {
+        currentVersion: '当前版本', latestVersion: '最新版本', releaseDate: '发布日期', author: '作者',
+        newVersionFound: '发现新版本', joinGroup: '加入交流群', updateContent: '更新内容',
+        updateNow: '立即更新', features: '版本特性', clickToUpdate: '点击立即更新到最新版本',
+        sponsor: '赞助支持', sponsorDesc: '如果这个工具对你有帮助，欢迎请作者喝杯咖啡 ☕',
+        wechatPay: '微信支付', alipay: '支付宝'
+      },
+      settings: {
+        appearance: '外观', language: '语言', languageDesc: '界面显示语言，切换后立即生效',
+        general: '常规', notification: '通知',
+        dataDir: '存储目录', dataDirDesc: 'Outlook 账号池等内部数据的本地存储位置',
+        dataDirPlaceholder: '默认存储路径',
+        outputDir: '注册结果输出目录', outputDirDesc: '成功账号以明文 JSON 数组写入该目录下的 accounts.json',
+        outputDirPlaceholder: '默认：应用所在目录',
+        proxy: '代理',
+        proxyDesc: '所有注册请求走该代理；留空=直连。支持 http/https/socks5 完整 URL，也支持 host:port:user:pass、host:port、user:pass@host:port 等简写。',
+        proxyPlaceholder: '例如 http://user:pass@127.0.0.1:7890',
+        sound: '提示音', soundDesc: '任务结束时播放提示音'
+      },
+      logs: { title: '运行日志', copyLog: '复制日志', empty: '暂无日志' },
+      register: {
+        newTask: '新建注册任务', count: '注册数量', concurrency: '并发数', delay: '延迟 (秒)',
+        emailProvider: '邮箱提供商', outlook: '微软邮箱', moemail: 'MoeMail', cloudmail: 'Cloud-Mail',
+        selectDomain: '选择域名', selectAllDomain: '全选域名',
+        domainHint: '邮箱名将自动生成随机字符串',
+        outlookHint: '使用微软邮箱进行注册。',
+        moemailHint: '使用 MoeMail 临时邮箱进行注册，每次任务会自动生成新邮箱。',
+        cloudmailHint: '使用 Cloud-Mail 自部署邮箱注册。⚠️ 每次注册会创建永久账号，需手动清理。',
+        cloudmailWarn: '⚠️ 每次注册会在 Cloud-Mail 上创建一个永久账号，需手动清理',
+        outlookHintFull: '使用微软邮箱进行注册，代理配置请在设置页设置。',
+        modeRandom: '随机', modeRoundRobin: '轮询',
+        startBtn: '开始注册', stopBtn: '停止',
+        mailnestHintFull: '使用 MailNest 提供的临时 Outlook 邮箱进行注册，代理配置请在设置页设置。',
+      },
+      accounts: {
+        moemailTitle: 'MoeMail 临时邮箱', cloudmailTitle: 'Cloud-Mail 自部署邮箱', addConfig: '添加新配置',
+        configName: '名称', optional: '(可选)', configNamePlaceholder: '自动生成',
+        apiUrl: 'API URL', apiKey: 'API Key',
+        testConnection: '测试连接', addConfigBtn: '添加配置',
+        outlookTitle: '微软邮箱', count: '共', countUnit: '个',
+        addAccount: '添加账号', clearRegistered: '清除已注册',
+        thIndex: '#', thEmail: '邮箱地址', thStatus: '状态', thAddedAt: '添加时间', thActions: '操作',
+        addModalTitle: '添加微软邮箱账号',
+        importFile: '导入文件', selectTxt: '选择 TXT 文件', perLine: '每行一个账号',
+        orManual: '或手动输入', manualInput: '手动输入',
+        manualFormat: '格式：邮箱----密码----ClientID----RefreshToken----imap/graph，每行一个（不填最后一段默认 imap）',
+        manualPlaceholder: 'user@outlook.com----password----clientid----refreshtoken',
+        addToList: '添加到列表',
+        moemailModalTitle: 'MoeMail 配置管理',
+        configList: '配置列表', configList2: '配置列表',
+        addNewConfig: '添加新配置',
+        moemailNamePlaceholder: '例如：主账号',
+        thName: '名称', thUrl: 'URL',
+        inputRequired: '请先输入 Outlook 账号数据',
+        addedSummary: '成功添加 {n} 个账号，当前共 {total} 个',
+        importSummary: '成功导入 {n} 个账号，当前共 {total} 个',
+        importFailed: '导入失败',
+        pagerInfo: '第 {cur} / {total} 页 (共 {n} 个)',
+        emptyRow: '暂无邮箱账号',
+        deleteTitle: '删除账号',
+        deleteMsg: '确认删除账号 {email} ?',
+        deleteConfirm: '确认删除',
+        deletedOne: '账号已删除',
+        clearAllTitle: '清空微软邮箱',
+        clearAllMsg: '确认清空所有微软邮箱账号？此操作不可恢复！',
+        clearAllConfirm: '确认清空',
+        allCleared: '已清空所有账号',
+        noRegistered: '没有已注册的账号',
+        clearRegisteredTitle: '清除已注册',
+        clearRegisteredMsg: '确认删除 {n} 个已注册（成功/失败）的账号？',
+        mailnestTitle: 'MailNest 临时邮箱',
+        projectCode: '项目代码',
+      },
+      subscription: {
+        accountList: '账号列表', autoLoaded: '已自动加载输出文件夹中的账号',
+        autoLoadedFrom: '已自动加载：{dir}',
+        batchGet: '一键获取选中', copyLinks: '复制选中链接', reload: '重新加载账号',
+        concurrency: '并发', notStarted: '未开始',
+        thEmail: '邮箱', thSubscription: '订阅', thStatus: '状态', thActions: '操作',
+        planModalTitle: '选择订阅计划', planLoading: '将使用账号 — 加载中…',
+        startBatch: '开始获取',
+        errorModalTitle: '获取失败 · 上游响应', errorAccount: '账号',
+        loadFailed: '加载账号失败',
+        totalSelected: '共 {total} 个 / 已选 {sel}',
+        statRunning: '进行中 {n}', statSuccess: '成功 {n}',
+        statSuspended: '封禁 {n}', statFailed: '失败 {n}',
+        emptyOutput: '输出目录下尚无账号，请先注册或调整输出目录。',
+        clickForDetail: '点击查看详情', clickForResponse: '点击查看详细响应',
+        openLink: '打开链接', copyLink: '复制链接',
+        fetch: '获取', refetch: '重新获取',
+        pickFirst: '请先勾选要获取的账号',
+        planHintSingle: '将使用账号 {email} 加载可用计划，并仅为该账号获取链接。',
+        planHintBatch: '将使用账号 {email} 加载可用计划，并对已勾选的 {n} 个账号批量获取链接。',
+        noPlans: '未返回任何可用计划',
+        pickPlan: '请先选择一个计划',
+        loadPickPlan: '请先加载并选择计划',
+        bannedRemoved: '账号 {email} 已被封禁，已从输出文件移除',
+        bannedShort: '账号已被封禁',
+        unknownError: '未知错误',
+        linkCopied: '已复制链接',
+        linksCopied: '已复制 {n} 条链接',
+        noLinksToCopy: '暂无可复制的链接（需勾选且已获取成功）',
+        noErrorInfo: '(无错误信息)',
+        errCopied: '已复制错误详情'
+      },
+      modal: {
+        updateTitle: '发现新版本', updateLater: '稍后', updateDownload: '前往下载',
+        confirmLogoutTitle: '确认退出卡密？',
+        confirmLogoutMsg: '此操作会清除本地授权信息，需要重新激活卡密才能使用。',
+        confirmLogoutBtn: '确认退出'
+      },
+      toast: {
+        saved: '已保存', deleted: '已删除', cleared: '已清空', copied: '已复制',
+        copyFailed: '复制失败', operationOk: '操作成功', operationFailed: '操作失败',
+        proxySaved: '代理已保存', proxyCleared: '代理已清除', proxyDetecting: '检测代理中...',
+        dataDirSet: '存储目录已设置', dataDirReset: '已重置为默认存储目录',
+        outputDirSet: '输出目录已设置', outputDirReset: '已重置为默认输出目录',
+        emptyDir: '请选择目录',
+        addOk: '添加成功', addFailed: '添加失败',
+        deleteOk: '删除成功', deleteFailed: '删除失败',
+        clearOk: '清空成功', clearFailed: '清空失败',
+        testing: '测试中...', testOk: '连接成功', testFailed: '连接失败',
+        accountsAdded: '已添加 {n} 个账号', accountsDeleted: '已删除 {n} 个账号',
+        clearedCount: '已清空 {n} 项',
+        confirmDelete: '确认删除？', confirmClear: '确认清空全部？',
+        importOk: '导入成功 ({n} 个)', importFailed: '导入失败',
+        taskStarting: '任务启动中...', taskRunning: '任务运行中', taskStopped: '任务已停止',
+        taskCompleted: '任务完成', taskFailed: '任务失败',
+        taskStarted: '任务已启动', taskStartFailed: '启动失败',
+        taskStopping: '正在停止任务...', taskStopFailed: '停止失败',
+        upToDate: '当前已是最新版本', checkUpdateFailed: '检查更新失败',
+        taskCompleteMsg: '{name} 任务完成！成功 {s} / 失败 {f} / 共 {t}',
+        configMissing: '配置缺失', selectAtLeastOne: '请至少选择一个',
+        noAvailableAccount: '没有可用账号', noEmailSelected: '未选择邮箱',
+        logCopied: '日志已复制', logEmpty: '暂无日志',
+        languageChanged: '已切换语言'
+      },
+      moemail: {
+        configCount: '{n} 个',
+        addNew: '添加新配置',
+        clearAllBtn: '清空全部',
+        deleteConfirm: '确认删除该配置？',
+        clearAllConfirm: '确认清空全部配置？该操作不可恢复',
+        testing: '测试中...',
+        testOk: '连接成功，发现 {n} 个域名',
+        testFailed: '连接失败',
+        testFailedShort: '测试失败',
+        requiredName: '请填写配置名称',
+        requiredUrl: '请填写 API URL',
+        requiredKey: '请填写 API Key',
+        requiredUrlKey: '请填写 API URL 和 API Key',
+        requiredUrlKey2: '请填写 URL 和 API Key',
+        requiredUrlKeyShort: '请填写 API URL 和 Key',
+        nameExists: '配置名称已存在',
+        invalidFormat: '配置格式错误',
+        emptyConfigs: '暂无配置',
+        emptyInline: '暂无配置，请在上方添加 MoeMail 配置',
+        autoName: '主账号',
+        autoNamePrefix: '配置',
+        summaryConfigured: '已配置 {n} 个',
+        summaryActive: '已配置 {n} 个，可用 {m} 个',
+        summaryNone: '未配置',
+        loadDomainsFailed: '加载域名失败',
+        noDomains: '暂无可用域名，请先测试配置',
+        noDomainsHint: '暂无配置，请先在设置页添加',
+        deleteConfigTitle: '删除配置',
+        deleteConfigMsg: '确认删除配置 "{name}" 吗？',
+        clearAllTitle: '清空 MoeMail 配置',
+        clearAllMsg: '确认清空所有 MoeMail 配置吗？此操作不可恢复。',
+        nothingToClear: '没有配置可清空',
+        allCleared: '已清空所有配置',
+        addedNamed: '已添加: {name}',
+        connectedDomains: '连接成功，{n} 个域名',
+        connectedOk: '连接成功！',
+        connectedOkDomains: '连接成功！可用域名: {d}',
+        testingConnection: '正在测试连接...',
+        addedDomains: '添加成功，可用域名 {n} 个',
+        addedOk: '添加成功',
+        testFailedAddDeny: '测试失败: {err}，无法添加配置',
+        err403: 'API Key 权限不足，请检查账号权限或购买 API 调用额度',
+        err401: 'API Key 无效，请检查是否正确',
+        err404: 'API 地址错误，请检查 URL 是否正确',
+        errTimeout: '连接超时，请检查网络或 URL 是否正确',
+        err403Short: 'API Key 权限不足',
+        err401Short: 'API Key 无效',
+        err404Short: 'API 地址错误',
+        errTimeoutShort: '连接超时',
+        testOkWithDomains: '连接成功，可用域名 {n} 个',
+        testOkNoDomain: '连接成功，但未返回可用域名'
+      },
+      cloudmail: {
+        summaryNone: '未配置',
+        summaryActive: '已配置 {n} 个，可用 {m} 个',
+        emptyInline: '暂无配置，请在上方添加 Cloud-Mail 配置',
+        autoNamePrefix: '配置',
+        adminEmail: '管理员邮箱',
+        adminPassword: '管理员密码',
+        domains: '允许的域名 (每行/逗号分隔)',
+        permanentWarn: '⚠️ Cloud-Mail 没有公开删除接口，每次注册创建的邮箱账号会永久保留在服务器上，需手动清理。',
+        requiredFields: '请填写 URL、管理员邮箱、密码',
+        requiredDomains: '请填写至少一个域名',
+        nameExists: '配置名称已存在',
+        testing: '测试中...',
+        testFailed: '连接失败',
+        testFailedShort: '测试失败',
+        connectedDomains: '连接成功，{n} 个域名',
+        connectedDomainsList: '连接成功，域名: {d}',
+        connectedNoDomain: '连接成功，但服务器未返回域名（可能开启了 loginDomain 隐私开关）',
+        testOkWithDomains: '连接成功，{n} 个域名',
+        testOkNoDomain: '连接成功，但服务器未返回域名',
+        domainsOptional: '允许的域名（可选，留空将自动从服务器拉取）',
+        addedNamed: '已添加: {name}',
+        deleteConfigTitle: '删除配置',
+        deleteConfigMsg: '确认删除配置 "{name}" 吗？',
+        clearAllTitle: '清空 Cloud-Mail 配置',
+        clearAllMsg: '确认清空所有 Cloud-Mail 配置吗？此操作不可恢复。',
+        nothingToClear: '没有配置可清空',
+        allCleared: '已清空所有配置',
+        noDomainsHint: '暂无配置，请先在邮箱池页添加',
+        noActiveDomain: '暂无可用域名，请先测试 Cloud-Mail 配置'
+      },
+      mailnest: {
+        requiredKeyProjectCodeShort: '请填写 Key 和 项目代码',
+        balance: '测试成功，余额为 {n}',
+        summaryNone: "未配置",
+        summaryActive: "已配置",
+      },
+    },
+    en: {
+      nav: {
+        overview: 'Overview', logs: 'Logs', register: 'Register', accounts: 'Emails', subscription: 'Subscription',
+        about: 'About', settings: 'Settings', toggleTheme: 'Toggle theme', checkUpdate: 'Check update',
+        language: 'Language: English (click to switch)'
+      },
+      page: {
+        overview: 'Overview', logs: 'Logs', register: 'Register', accounts: 'Emails', subscription: 'Subscription',
+        about: 'About', settings: 'Settings'
+      },
+      common: {
+        loading: 'Loading...', loadFailed: 'Failed to load', noData: 'No data', notSet: 'Not configured',
+        copy: 'Copy', save: 'Save', cancel: 'Cancel', confirm: 'Confirm', delete: 'Delete',
+        reset: 'Reset', clear: 'Clear', clearAll: 'Clear all', select: 'Select', close: 'Close',
+        ok: 'OK', edit: 'Edit', add: 'Add', test: 'Test', refresh: 'Refresh',
+        retry: 'Retry', back: 'Back', next: 'Next', prev: 'Previous', open: 'Open',
+        all: 'All', random: 'Random', poll: 'Poll', enabled: 'Enabled', disabled: 'Disabled',
+        prevPage: 'Prev', nextPage: 'Next'
+      },
+      status: {
+        idle: 'Idle', running: 'Running', success: 'Success', failed: 'Failed',
+        registered: 'Registered', unregistered: 'Unregistered', pending: 'Pending', fetching: 'Fetching',
+        ready: 'Ready', suspended: 'Suspended', tested: 'Tested', untested: 'Untested',
+        available: 'Available', unavailable: 'Unavailable', configured: 'Configured', notConfigured: 'Not configured',
+        connecting: 'Connecting', detecting: 'Detecting', notStarted: 'Not started'
+      },
+      overview: {
+        kiroAccounts: 'Kiro accounts', successRate: 'Success rate',
+        liveStatus: 'Live status', progress: 'Progress', success: 'Success', failed: 'Failed',
+        elapsed: 'Elapsed', eta: 'ETA', avg: 'Average', rate: 'Rate',
+        newTask: 'New task', stop: 'Stop'
+      },
+      about: {
+        currentVersion: 'Current', latestVersion: 'Latest', releaseDate: 'Released', author: 'Author',
+        newVersionFound: 'New version available', joinGroup: 'Join group', updateContent: "What's new",
+        updateNow: 'Update now', features: 'Release notes', clickToUpdate: 'Click to update to the latest version',
+        sponsor: 'Sponsor', sponsorDesc: 'If this tool helps you, consider buying the author a coffee ☕',
+        wechatPay: 'WeChat Pay', alipay: 'Alipay'
+      },
+      settings: {
+        appearance: 'Appearance', language: 'Language', languageDesc: 'UI language, applied immediately',
+        general: 'General', notification: 'Notifications',
+        dataDir: 'Data directory', dataDirDesc: 'Local storage for Outlook account pool and other internal data',
+        dataDirPlaceholder: 'Default path',
+        outputDir: 'Output directory', outputDirDesc: 'Successful accounts are written to accounts.json in this directory',
+        outputDirPlaceholder: 'Default: app directory',
+        proxy: 'Proxy',
+        proxyDesc: 'All requests use this proxy; empty = direct. Accepts http/https/socks5 URLs or shortcuts like host:port:user:pass.',
+        proxyPlaceholder: 'e.g. http://user:pass@127.0.0.1:7890',
+        sound: 'Sound', soundDesc: 'Play a sound when a task ends'
+      },
+      logs: { title: 'Logs', copyLog: 'Copy logs', empty: 'No logs' },
+      register: {
+        newTask: 'New registration task', count: 'Count', concurrency: 'Concurrency', delay: 'Delay (s)',
+        emailProvider: 'Email provider', outlook: 'Microsoft', moemail: 'MoeMail', cloudmail: 'Cloud-Mail',
+        selectDomain: 'Select domain', selectAllDomain: 'Select all',
+        domainHint: 'Email username is auto-generated as random string',
+        outlookHint: 'Register using Microsoft mailboxes.',
+        moemailHint: 'Register using MoeMail temp mailboxes. A new mailbox is generated per task.',
+        cloudmailHint: 'Register using self-hosted Cloud-Mail. ⚠️ Each run creates a permanent account — clean up manually.',
+        cloudmailWarn: '⚠️ Each registration creates a permanent account on Cloud-Mail. Clean up manually.',
+        outlookHintFull: 'Register using Microsoft mailboxes. Configure proxy in Settings.',
+        modeRandom: 'Random', modeRoundRobin: 'Round-robin',
+        startBtn: 'Start', stopBtn: 'Stop',
+        mailnestHintFull: 'Register using the temporary Outlook email account provided by MailNest. Please configure your proxy settings on the Settings page.',
+      },
+      accounts: {
+        moemailTitle: 'MoeMail temp mail', cloudmailTitle: 'Cloud-Mail (self-hosted)', addConfig: 'Add config',
+        configName: 'Name', optional: '(optional)', configNamePlaceholder: 'auto-generated',
+        apiUrl: 'API URL', apiKey: 'API Key',
+        testConnection: 'Test connection', addConfigBtn: 'Add config',
+        outlookTitle: 'Microsoft', count: 'Total', countUnit: '',
+        addAccount: 'Add account', clearRegistered: 'Clear registered',
+        thIndex: '#', thEmail: 'Email', thStatus: 'Status', thAddedAt: 'Added', thActions: 'Actions',
+        addModalTitle: 'Add Microsoft account',
+        importFile: 'Import file', selectTxt: 'Select TXT file', perLine: 'One account per line',
+        orManual: 'or paste manually', manualInput: 'Manual input',
+        manualFormat: 'Format: email----password----ClientID----RefreshToken----imap/graph, one per line (default: imap)',
+        manualPlaceholder: 'user@outlook.com----password----clientid----refreshtoken',
+        addToList: 'Add to list',
+        moemailModalTitle: 'MoeMail configuration',
+        configList: 'Config list', configList2: 'Configs',
+        addNewConfig: 'Add new config',
+        moemailNamePlaceholder: 'e.g. Main account',
+        thName: 'Name', thUrl: 'URL',
+        inputRequired: 'Please enter Outlook account data first',
+        addedSummary: 'Added {n} accounts. Total now: {total}',
+        importSummary: 'Imported {n} accounts. Total now: {total}',
+        importFailed: 'Import failed',
+        pagerInfo: 'Page {cur} / {total} (Total {n})',
+        emptyRow: 'No mail accounts',
+        deleteTitle: 'Delete account',
+        deleteMsg: 'Delete account {email}?',
+        deleteConfirm: 'Confirm delete',
+        deletedOne: 'Account deleted',
+        clearAllTitle: 'Clear Microsoft accounts',
+        clearAllMsg: 'Clear all Microsoft mail accounts? This cannot be undone.',
+        clearAllConfirm: 'Confirm clear',
+        allCleared: 'All accounts cleared',
+        noRegistered: 'No registered accounts',
+        clearRegisteredTitle: 'Clear registered',
+        clearRegisteredMsg: 'Delete {n} registered (success/failed) accounts?',
+        mailnestTitle: 'MailNest temp mail',
+        projectCode: 'Project code',
+      },
+      subscription: {
+        accountList: 'Accounts', autoLoaded: 'Auto-loaded accounts from output folder',
+        autoLoadedFrom: 'Auto-loaded: {dir}',
+        batchGet: 'Fetch selected', copyLinks: 'Copy selected links', reload: 'Reload accounts',
+        concurrency: 'Concurrency', notStarted: 'Not started',
+        thEmail: 'Email', thSubscription: 'Subscription', thStatus: 'Status', thActions: 'Actions',
+        planModalTitle: 'Select plan', planLoading: 'Loading account…',
+        startBatch: 'Start fetching',
+        errorModalTitle: 'Fetch failed · upstream response', errorAccount: 'Account',
+        loadFailed: 'Failed to load accounts',
+        totalSelected: 'Total {total} / Selected {sel}',
+        statRunning: 'Running {n}', statSuccess: 'Success {n}',
+        statSuspended: 'Suspended {n}', statFailed: 'Failed {n}',
+        emptyOutput: 'No accounts in output directory. Register first or change the output directory.',
+        clickForDetail: 'Click for details', clickForResponse: 'Click for full response',
+        openLink: 'Open link', copyLink: 'Copy link',
+        fetch: 'Fetch', refetch: 'Refetch',
+        pickFirst: 'Please select accounts first',
+        planHintSingle: 'Will load plans using {email} and fetch link only for this account.',
+        planHintBatch: 'Will load plans using {email} and fetch links for {n} selected accounts.',
+        noPlans: 'No plans returned',
+        pickPlan: 'Please select a plan',
+        loadPickPlan: 'Please load and select a plan first',
+        bannedRemoved: 'Account {email} suspended, removed from output file',
+        bannedShort: 'Account suspended',
+        unknownError: 'Unknown error',
+        linkCopied: 'Link copied',
+        linksCopied: 'Copied {n} links',
+        noLinksToCopy: 'No links to copy (must be selected and fetched successfully)',
+        noErrorInfo: '(no error info)',
+        errCopied: 'Error details copied'
+      },
+      modal: {
+        updateTitle: 'New version available', updateLater: 'Later', updateDownload: 'Download',
+        confirmLogoutTitle: 'Sign out license?',
+        confirmLogoutMsg: 'Local license info will be cleared. You will need to re-activate.',
+        confirmLogoutBtn: 'Sign out'
+      },
+      toast: {
+        saved: 'Saved', deleted: 'Deleted', cleared: 'Cleared', copied: 'Copied',
+        copyFailed: 'Copy failed', operationOk: 'Done', operationFailed: 'Operation failed',
+        proxySaved: 'Proxy saved', proxyCleared: 'Proxy cleared', proxyDetecting: 'Detecting proxy...',
+        dataDirSet: 'Data directory set', dataDirReset: 'Data directory reset to default',
+        outputDirSet: 'Output directory set', outputDirReset: 'Output directory reset to default',
+        emptyDir: 'Please select a directory',
+        addOk: 'Added', addFailed: 'Failed to add',
+        deleteOk: 'Deleted', deleteFailed: 'Failed to delete',
+        clearOk: 'Cleared', clearFailed: 'Failed to clear',
+        testing: 'Testing...', testOk: 'Connection OK', testFailed: 'Connection failed',
+        accountsAdded: 'Added {n} accounts', accountsDeleted: 'Deleted {n} accounts',
+        clearedCount: 'Cleared {n} items',
+        confirmDelete: 'Delete?', confirmClear: 'Clear all?',
+        importOk: 'Imported {n} accounts', importFailed: 'Import failed',
+        taskStarting: 'Starting...', taskRunning: 'Running', taskStopped: 'Stopped',
+        taskCompleted: 'Completed', taskFailed: 'Task failed',
+        taskStarted: 'Task started', taskStartFailed: 'Failed to start',
+        taskStopping: 'Stopping task...', taskStopFailed: 'Failed to stop',
+        upToDate: 'You are on the latest version', checkUpdateFailed: 'Failed to check update',
+        taskCompleteMsg: '{name} done! Success {s} / Failed {f} / Total {t}',
+        configMissing: 'Configuration missing', selectAtLeastOne: 'Select at least one',
+        noAvailableAccount: 'No available accounts', noEmailSelected: 'No email selected',
+        logCopied: 'Logs copied', logEmpty: 'No logs to copy',
+        languageChanged: 'Language switched'
+      },
+      moemail: {
+        configCount: '{n}',
+        addNew: 'Add new config',
+        clearAllBtn: 'Clear all',
+        deleteConfirm: 'Delete this config?',
+        clearAllConfirm: 'Clear all configurations? This cannot be undone.',
+        testing: 'Testing...',
+        testOk: 'Connected, found {n} domains',
+        testFailed: 'Connection failed',
+        testFailedShort: 'Test failed',
+        requiredName: 'Please enter config name',
+        requiredUrl: 'API URL required',
+        requiredKey: 'API Key required',
+        requiredUrlKey: 'Please fill in API URL and API Key',
+        requiredUrlKey2: 'Please fill in URL and API Key',
+        requiredUrlKeyShort: 'Please fill in API URL and Key',
+        nameExists: 'Config name already exists',
+        invalidFormat: 'Invalid config format',
+        emptyConfigs: 'No configurations',
+        emptyInline: 'No configs yet — add a MoeMail config above',
+        autoName: 'Main',
+        autoNamePrefix: 'Config',
+        summaryConfigured: '{n} configured',
+        summaryActive: '{n} configured · {m} available',
+        summaryNone: 'Not configured',
+        loadDomainsFailed: 'Failed to load domains',
+        noDomains: 'No domains available; please test config first',
+        noDomainsHint: 'No configs yet; add one in Settings',
+        deleteConfigTitle: 'Delete config',
+        deleteConfigMsg: 'Delete config "{name}"?',
+        clearAllTitle: 'Clear MoeMail configs',
+        clearAllMsg: 'Clear all MoeMail configurations? This cannot be undone.',
+        nothingToClear: 'No configs to clear',
+        allCleared: 'All configs cleared',
+        addedNamed: 'Added: {name}',
+        connectedDomains: 'Connected, {n} domains',
+        connectedOk: 'Connected!',
+        connectedOkDomains: 'Connected! Available domains: {d}',
+        testingConnection: 'Testing connection...',
+        addedDomains: 'Added. {n} domains available.',
+        addedOk: 'Added',
+        testFailedAddDeny: 'Test failed: {err}. Cannot add config.',
+        err403: 'API Key has insufficient permission. Check account or buy API quota.',
+        err401: 'API Key invalid, please verify',
+        err404: 'API URL incorrect, please verify',
+        errTimeout: 'Timeout, check network or URL',
+        err403Short: 'API Key permission denied',
+        err401Short: 'API Key invalid',
+        err404Short: 'API URL incorrect',
+        errTimeoutShort: 'Timeout',
+        testOkWithDomains: 'Connected. {n} domains available.',
+        testOkNoDomain: 'Connected, but no domains returned'
+      },
+      cloudmail: {
+        summaryNone: 'Not configured',
+        summaryActive: '{n} configured, {m} active',
+        emptyInline: 'No configs yet. Add a Cloud-Mail config above.',
+        autoNamePrefix: 'Config',
+        adminEmail: 'Admin email',
+        adminPassword: 'Admin password',
+        domains: 'Allowed domains (newline / comma separated)',
+        permanentWarn: '⚠️ Cloud-Mail has no public delete API. Mailboxes created during registration remain on the server permanently — clean up manually.',
+        requiredFields: 'URL, admin email and password are required',
+        requiredDomains: 'Please provide at least one domain',
+        nameExists: 'Name already exists',
+        testing: 'Testing...',
+        testFailed: 'Connection failed',
+        testFailedShort: 'Test failed',
+        connectedDomains: 'Connected, {n} domains',
+        connectedDomainsList: 'Connected. Domains: {d}',
+        connectedNoDomain: 'Connected, but server returned no domains (loginDomain privacy may be on).',
+        testOkWithDomains: 'Connected, {n} domains',
+        testOkNoDomain: 'Connected, but server returned no domains.',
+        domainsOptional: 'Allowed domains (optional — leave blank to auto-fetch from server)',
+        addedNamed: 'Added: {name}',
+        deleteConfigTitle: 'Delete config',
+        deleteConfigMsg: 'Delete config "{name}"?',
+        clearAllTitle: 'Clear all Cloud-Mail configs',
+        clearAllMsg: 'Clear all Cloud-Mail configs? This cannot be undone.',
+        nothingToClear: 'No configs to clear',
+        allCleared: 'All configs cleared',
+        noDomainsHint: 'No configs yet. Add one in the Emails page first.',
+        noActiveDomain: 'No active domains. Please test your Cloud-Mail configs first.'
+      },
+      mailnest: {
+        requiredKeyProjectCodeShort: 'Please enter the Key and Project Code',
+        balance: 'Test successful, balance is {n}',
+        summaryNone: "Not configured",
+        summaryActive: "Configured",
+      },
+    },
+    ja: {
+      nav: {
+        overview: '概要', logs: 'ログ', register: '登録', accounts: 'メール', subscription: 'サブスク',
+        about: '情報', settings: '設定', toggleTheme: 'テーマ切替', checkUpdate: '更新確認',
+        language: '言語：日本語 (クリックで切替)'
+      },
+      page: {
+        overview: '概要', logs: 'ログ', register: '登録', accounts: 'メール', subscription: 'サブスク',
+        about: '情報', settings: '設定'
+      },
+      common: {
+        loading: '読み込み中...', loadFailed: '読み込み失敗', noData: 'データなし', notSet: '未設定',
+        copy: 'コピー', save: '保存', cancel: 'キャンセル', confirm: '確認', delete: '削除',
+        reset: 'リセット', clear: 'クリア', clearAll: 'すべてクリア', select: '選択', close: '閉じる',
+        ok: 'OK', edit: '編集', add: '追加', test: 'テスト', refresh: '更新',
+        retry: '再試行', back: '戻る', next: '次へ', prev: '前へ', open: '開く',
+        all: 'すべて', random: 'ランダム', poll: '巡回', enabled: '有効', disabled: '無効',
+        prevPage: '前へ', nextPage: '次へ'
+      },
+      status: {
+        idle: '待機', running: '実行中', success: '成功', failed: '失敗',
+        registered: '登録済み', unregistered: '未登録', pending: '待機中', fetching: '取得中',
+        ready: '準備完了', suspended: '凍結', tested: 'テスト済み', untested: '未テスト',
+        available: '利用可能', unavailable: '利用不可', configured: '設定済み', notConfigured: '未設定',
+        connecting: '接続中', detecting: '検出中', notStarted: '未開始'
+      },
+      overview: {
+        kiroAccounts: 'Kiro アカウント数', successRate: '登録成功率',
+        liveStatus: 'リアルタイム状態', progress: '進行状況', success: '成功', failed: '失敗',
+        elapsed: '経過時間', eta: '残り時間', avg: '平均', rate: '成功率',
+        newTask: '新規タスク', stop: '停止'
+      },
+      about: {
+        currentVersion: '現在のバージョン', latestVersion: '最新バージョン', releaseDate: 'リリース日', author: '作者',
+        newVersionFound: '新しいバージョンがあります', joinGroup: 'グループに参加', updateContent: '更新内容',
+        updateNow: '今すぐ更新', features: 'リリースノート', clickToUpdate: 'クリックして最新バージョンに更新',
+        sponsor: 'スポンサー', sponsorDesc: '役に立ったら作者にコーヒーを ☕',
+        wechatPay: 'WeChat Pay', alipay: 'Alipay'
+      },
+      settings: {
+        appearance: '外観', language: '言語', languageDesc: 'UIの表示言語。切替後すぐ反映されます',
+        general: '一般', notification: '通知',
+        dataDir: 'データディレクトリ', dataDirDesc: 'Outlook アカウントプール等の保存場所',
+        dataDirPlaceholder: 'デフォルトパス',
+        outputDir: '出力ディレクトリ', outputDirDesc: '成功アカウントはこのディレクトリの accounts.json に書き出されます',
+        outputDirPlaceholder: 'デフォルト：アプリのあるディレクトリ',
+        proxy: 'プロキシ',
+        proxyDesc: 'すべてのリクエストでこのプロキシを使用。空欄=直接接続。http/https/socks5 のURL、または host:port:user:pass などの省略形式に対応。',
+        proxyPlaceholder: '例: http://user:pass@127.0.0.1:7890',
+        sound: '通知音', soundDesc: 'タスク終了時に通知音を鳴らす'
+      },
+      logs: { title: 'ログ', copyLog: 'ログをコピー', empty: 'ログなし' },
+      register: {
+        newTask: '新規登録タスク', count: '登録数', concurrency: '同時実行数', delay: '遅延 (秒)',
+        emailProvider: 'メールプロバイダ', outlook: 'Microsoft', moemail: 'MoeMail', cloudmail: 'Cloud-Mail',
+        selectDomain: 'ドメイン選択', selectAllDomain: 'すべて選択',
+        domainHint: 'ユーザー名はランダム文字列で自動生成されます',
+        outlookHint: 'Microsoft メールで登録します。',
+        moemailHint: 'MoeMail の使い捨てメールで登録します。タスクごとに新しいメールが生成されます。',
+        cloudmailHint: '自己ホスト型 Cloud-Mail で登録します。⚠️ 毎回永続的なアカウントが作成されるため、手動で削除してください。',
+        cloudmailWarn: '⚠️ 登録のたびに Cloud-Mail 上で永続的なアカウントが作成されます。手動で削除してください。',
+        outlookHintFull: 'Microsoft メールで登録します。プロキシは設定ページで構成してください。',
+        modeRandom: 'ランダム', modeRoundRobin: 'ラウンドロビン',
+        startBtn: '登録開始', stopBtn: '停止',
+        mailnestHintFull: 'MailNestが提供する一時的なOutlookメールアカウントを使用して登録してください。プロキシの設定は、設定ページで行ってください。',
+      },
+      accounts: {
+        moemailTitle: 'MoeMail 使い捨てメール', cloudmailTitle: 'Cloud-Mail (自己ホスト型)', addConfig: '新規追加',
+        configName: '名前', optional: '(任意)', configNamePlaceholder: '自動生成',
+        apiUrl: 'API URL', apiKey: 'API Key',
+        testConnection: '接続テスト', addConfigBtn: '設定を追加',
+        outlookTitle: 'Microsoft メール', count: '合計', countUnit: '件',
+        addAccount: 'アカウント追加', clearRegistered: '登録済みを削除',
+        thIndex: '#', thEmail: 'メールアドレス', thStatus: '状態', thAddedAt: '追加日時', thActions: '操作',
+        addModalTitle: 'Microsoft アカウントを追加',
+        importFile: 'ファイル取り込み', selectTxt: 'TXTファイルを選択', perLine: '1行に1アカウント',
+        orManual: 'または手入力', manualInput: '手入力',
+        manualFormat: '形式：email----password----ClientID----RefreshToken----imap/graph (1行1件、省略時 imap)',
+        manualPlaceholder: 'user@outlook.com----password----clientid----refreshtoken',
+        addToList: 'リストに追加',
+        moemailModalTitle: 'MoeMail 設定管理',
+        configList: '設定一覧', configList2: '設定一覧',
+        addNewConfig: '新しい設定を追加',
+        moemailNamePlaceholder: '例: メインアカウント',
+        thName: '名前', thUrl: 'URL',
+        inputRequired: 'Outlook アカウントを入力してください',
+        addedSummary: '{n} 件のアカウントを追加 (合計 {total} 件)',
+        importSummary: '{n} 件のアカウントを取り込み (合計 {total} 件)',
+        importFailed: '取り込み失敗',
+        pagerInfo: '{cur} / {total} ページ (合計 {n} 件)',
+        emptyRow: 'メールアカウントなし',
+        deleteTitle: 'アカウント削除',
+        deleteMsg: 'アカウント {email} を削除しますか?',
+        deleteConfirm: '削除確定',
+        deletedOne: 'アカウントを削除しました',
+        clearAllTitle: 'Microsoft メールをクリア',
+        clearAllMsg: 'すべての Microsoft メールアカウントをクリアしますか? 元に戻せません。',
+        clearAllConfirm: 'クリア確定',
+        allCleared: 'すべてのアカウントをクリアしました',
+        noRegistered: '登録済みアカウントはありません',
+        clearRegisteredTitle: '登録済みを削除',
+        clearRegisteredMsg: '{n} 件の登録済み (成功/失敗) アカウントを削除しますか?',
+        mailnestTitle: 'MailNest 使い捨てメール',
+        projectCode: 'プロジェクトコード',
+      },
+      subscription: {
+        accountList: 'アカウント一覧', autoLoaded: '出力フォルダのアカウントを自動読み込み済み',
+        autoLoadedFrom: '自動読み込み済み: {dir}',
+        batchGet: '選択した項目を取得', copyLinks: '選択リンクをコピー', reload: '再読み込み',
+        concurrency: '同時実行数', notStarted: '未開始',
+        thEmail: 'メール', thSubscription: 'サブスク', thStatus: '状態', thActions: '操作',
+        planModalTitle: 'プランを選択', planLoading: 'アカウント読み込み中…',
+        startBatch: '取得開始',
+        errorModalTitle: '取得失敗 · サーバ応答', errorAccount: 'アカウント',
+        loadFailed: 'アカウントの読み込みに失敗',
+        totalSelected: '合計 {total} 件 / 選択 {sel} 件',
+        statRunning: '進行中 {n}', statSuccess: '成功 {n}',
+        statSuspended: '凍結 {n}', statFailed: '失敗 {n}',
+        emptyOutput: '出力ディレクトリにアカウントがありません。先に登録するか出力ディレクトリを変更してください。',
+        clickForDetail: '詳細を表示', clickForResponse: 'レスポンス詳細を表示',
+        openLink: 'リンクを開く', copyLink: 'リンクをコピー',
+        fetch: '取得', refetch: '再取得',
+        pickFirst: '取得するアカウントを選択してください',
+        planHintSingle: '{email} を使ってプランを読み込み、このアカウントのみリンクを取得します。',
+        planHintBatch: '{email} を使ってプランを読み込み、選択中の {n} 件にリンクを一括取得します。',
+        noPlans: '利用可能なプランがありません',
+        pickPlan: 'プランを選択してください',
+        loadPickPlan: '先にプランを読み込み選択してください',
+        bannedRemoved: 'アカウント {email} は凍結され、出力ファイルから削除しました',
+        bannedShort: 'アカウントが凍結されました',
+        unknownError: '不明なエラー',
+        linkCopied: 'リンクをコピーしました',
+        linksCopied: '{n} 件のリンクをコピー',
+        noLinksToCopy: 'コピー可能なリンクなし (選択 & 取得成功が必要)',
+        noErrorInfo: '(エラー情報なし)',
+        errCopied: 'エラー詳細をコピー'
+      },
+      modal: {
+        updateTitle: '新しいバージョンがあります', updateLater: '後で', updateDownload: 'ダウンロード',
+        confirmLogoutTitle: 'ライセンスをサインアウトしますか？',
+        confirmLogoutMsg: 'ローカルの認証情報が削除されます。再度ライセンス認証が必要になります。',
+        confirmLogoutBtn: 'サインアウト'
+      },
+      toast: {
+        saved: '保存しました', deleted: '削除しました', cleared: 'クリアしました', copied: 'コピーしました',
+        copyFailed: 'コピー失敗', operationOk: '完了', operationFailed: '操作に失敗しました',
+        proxySaved: 'プロキシを保存', proxyCleared: 'プロキシをクリア', proxyDetecting: 'プロキシを検出中...',
+        dataDirSet: 'データディレクトリを設定', dataDirReset: 'データディレクトリをデフォルトに戻しました',
+        outputDirSet: '出力ディレクトリを設定', outputDirReset: '出力ディレクトリをデフォルトに戻しました',
+        emptyDir: 'ディレクトリを選択してください',
+        addOk: '追加しました', addFailed: '追加に失敗しました',
+        deleteOk: '削除しました', deleteFailed: '削除に失敗しました',
+        clearOk: 'クリアしました', clearFailed: 'クリアに失敗しました',
+        testing: 'テスト中...', testOk: '接続成功', testFailed: '接続失敗',
+        accountsAdded: '{n} 件のアカウントを追加', accountsDeleted: '{n} 件のアカウントを削除',
+        clearedCount: '{n} 件をクリア',
+        confirmDelete: '削除しますか？', confirmClear: 'すべてクリアしますか？',
+        importOk: '{n} 件のアカウントを取り込み', importFailed: '取り込み失敗',
+        taskStarting: '起動中...', taskRunning: '実行中', taskStopped: '停止しました',
+        taskCompleted: '完了', taskFailed: 'タスク失敗',
+        taskStarted: 'タスクを起動しました', taskStartFailed: '起動失敗',
+        taskStopping: 'タスクを停止中...', taskStopFailed: '停止失敗',
+        upToDate: '最新バージョンです', checkUpdateFailed: '更新確認失敗',
+        taskCompleteMsg: '{name} 完了! 成功 {s} / 失敗 {f} / 合計 {t}',
+        configMissing: '設定が不足しています', selectAtLeastOne: '少なくとも1つ選択してください',
+        noAvailableAccount: '利用可能なアカウントなし', noEmailSelected: 'メールが選択されていません',
+        logCopied: 'ログをコピー', logEmpty: 'ログがありません',
+        languageChanged: '言語を切り替えました'
+      },
+      moemail: {
+        configCount: '{n} 件',
+        addNew: '新しい設定を追加',
+        clearAllBtn: 'すべてクリア',
+        deleteConfirm: 'この設定を削除しますか？',
+        clearAllConfirm: 'すべての設定を削除しますか？元に戻せません。',
+        testing: 'テスト中...',
+        testOk: '接続成功、{n} 個のドメインを検出',
+        testFailed: '接続失敗',
+        testFailedShort: 'テスト失敗',
+        requiredName: '設定名を入力してください',
+        requiredUrl: 'API URL を入力してください',
+        requiredKey: 'API Key を入力してください',
+        requiredUrlKey: 'API URL と API Key を入力してください',
+        requiredUrlKey2: 'URL と API Key を入力してください',
+        requiredUrlKeyShort: 'API URL と Key を入力してください',
+        nameExists: '設定名がすでに存在します',
+        invalidFormat: '設定形式が不正です',
+        emptyConfigs: '設定なし',
+        emptyInline: '設定がありません。上で MoeMail 設定を追加してください',
+        autoName: 'メイン',
+        autoNamePrefix: '設定',
+        summaryConfigured: '{n} 件設定済み',
+        summaryActive: '{n} 件設定済み · 利用可能 {m} 件',
+        summaryNone: '未設定',
+        loadDomainsFailed: 'ドメイン読み込み失敗',
+        noDomains: '利用可能なドメインなし、まず設定をテストしてください',
+        noDomainsHint: '設定がありません、設定ページで追加してください',
+        deleteConfigTitle: '設定を削除',
+        deleteConfigMsg: '設定 "{name}" を削除しますか?',
+        clearAllTitle: 'MoeMail 設定をクリア',
+        clearAllMsg: 'すべての MoeMail 設定をクリアしますか? 元に戻せません。',
+        nothingToClear: 'クリアする設定がありません',
+        allCleared: 'すべての設定をクリアしました',
+        addedNamed: '追加しました: {name}',
+        connectedDomains: '接続成功、{n} 個のドメイン',
+        connectedOk: '接続成功!',
+        connectedOkDomains: '接続成功! 利用可能ドメイン: {d}',
+        testingConnection: '接続テスト中...',
+        addedDomains: '追加成功、{n} 個のドメインが利用可能',
+        addedOk: '追加しました',
+        testFailedAddDeny: 'テスト失敗: {err}、設定を追加できません',
+        err403: 'API Key の権限不足。アカウント権限を確認するか API クォータを購入してください',
+        err401: 'API Key 無効、確認してください',
+        err404: 'API URL が誤っています。確認してください',
+        errTimeout: 'タイムアウト。ネットワークまたは URL を確認してください',
+        err403Short: 'API Key 権限不足',
+        err401Short: 'API Key 無効',
+        err404Short: 'API URL 誤り',
+        errTimeoutShort: 'タイムアウト',
+        testOkWithDomains: '接続成功、利用可能ドメイン {n} 件',
+        testOkNoDomain: '接続成功、ただしドメインなし'
+      },
+      cloudmail: {
+        summaryNone: '未設定',
+        summaryActive: '{n} 件設定、{m} 件利用可',
+        emptyInline: '設定なし。上のフォームから Cloud-Mail 設定を追加してください。',
+        autoNamePrefix: '設定',
+        adminEmail: '管理者メール',
+        adminPassword: '管理者パスワード',
+        domains: '許可ドメイン (改行/カンマ区切り)',
+        permanentWarn: '⚠️ Cloud-Mail には公開削除 API がないため、登録のたびに作成されたメールボックスはサーバーに永続的に残ります。手動で削除してください。',
+        requiredFields: 'URL、管理者メール、パスワードを入力してください',
+        requiredDomains: '少なくとも 1 つのドメインを入力してください',
+        nameExists: '名前が既に存在します',
+        testing: 'テスト中...',
+        testFailed: '接続失敗',
+        testFailedShort: 'テスト失敗',
+        connectedDomains: '接続成功、{n} ドメイン',
+        connectedDomainsList: '接続成功、ドメイン: {d}',
+        connectedNoDomain: '接続成功、ただしサーバーがドメインを返しませんでした（loginDomain プライバシーが有効の可能性）',
+        testOkWithDomains: '接続成功、{n} ドメイン',
+        testOkNoDomain: '接続成功、ただしサーバーがドメインを返しませんでした',
+        domainsOptional: '許可ドメイン（任意 — 空欄ならサーバーから自動取得）',
+        addedNamed: '追加しました: {name}',
+        deleteConfigTitle: '設定を削除',
+        deleteConfigMsg: '設定 "{name}" を削除しますか?',
+        clearAllTitle: 'Cloud-Mail 設定を全て削除',
+        clearAllMsg: '全ての Cloud-Mail 設定を削除しますか? この操作は元に戻せません。',
+        nothingToClear: '削除する設定がありません',
+        allCleared: '全ての設定を削除しました',
+        noDomainsHint: '設定なし。先にメールページで追加してください。',
+        noActiveDomain: '利用可能なドメインがありません。先に Cloud-Mail 設定をテストしてください。'
+      },
+      mailnest: {
+        requiredKeyProjectCodeShort: '「Key」と「プロジェクトコード」をご入力ください',
+        balance: 'テストは成功しました。残高は {n} です。',
+        summaryNone: "未設定",
+        summaryActive: "設定済み",
+      },
+    }
+  };
+
+  var STORAGE_KEY = 'kirox-language';
+  var DEFAULT_LANG = 'zh';
+  var currentLang = DEFAULT_LANG;
+
+  function getByPath(obj, path) {
+    var parts = path.split('.');
+    var cur = obj;
+    for (var i = 0; i < parts.length; i++) {
+      if (cur == null) return undefined;
+      cur = cur[parts[i]];
+    }
+    return cur;
+  }
+
+  function interpolate(s, vars) {
+    if (!vars) return s;
+    return s.replace(/\{(\w+)\}/g, function(_, k) {
+      return vars[k] != null ? vars[k] : '{' + k + '}';
+    });
+  }
+
+  function t(key, vars) {
+    var v = getByPath(DICT[currentLang], key);
+    if (v == null) v = getByPath(DICT[DEFAULT_LANG], key);
+    if (v == null) return key;
+    return interpolate(v, vars);
+  }
+
+  function applyI18n(root) {
+    root = root || document;
+    // textContent
+    var nodes = root.querySelectorAll('[data-i18n]');
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      var key = el.getAttribute('data-i18n');
+      var val = t(key);
+      // 保留 textContent 模式：完全替换
+      el.textContent = val;
+    }
+    // placeholder
+    var phs = root.querySelectorAll('[data-i18n-placeholder]');
+    for (var j = 0; j < phs.length; j++) {
+      phs[j].setAttribute('placeholder', t(phs[j].getAttribute('data-i18n-placeholder')));
+    }
+    // title (tooltips)
+    var titles = root.querySelectorAll('[data-i18n-title]');
+    for (var k = 0; k < titles.length; k++) {
+      titles[k].setAttribute('title', t(titles[k].getAttribute('data-i18n-title')));
+    }
+  }
+
+  function setLanguage(lang, options) {
+    if (!DICT[lang]) lang = DEFAULT_LANG;
+    currentLang = lang;
+    try { localStorage.setItem(STORAGE_KEY, lang); } catch (e) {}
+    document.documentElement.setAttribute('lang', lang);
+    applyI18n(document);
+    // 通知监听者
+    try {
+      var evt = new CustomEvent('i18n:changed', { detail: { lang: lang } });
+      window.dispatchEvent(evt);
+    } catch (e) {}
+    // 持久化到后端（异步，不阻塞 UI）
+    if (!options || options.persist !== false) {
+      try {
+        if (window.go && window.go.main && window.go.main.App && window.go.main.App.SetLanguage) {
+          window.go.main.App.SetLanguage(lang);
+        }
+      } catch (e) {}
+    }
+  }
+
+  function getLanguage() { return currentLang; }
+
+  async function init() {
+    var lang = '';
+    // 1. 后端持久化值
+    try {
+      if (window.go && window.go.main && window.go.main.App && window.go.main.App.GetLanguage) {
+        lang = await window.go.main.App.GetLanguage();
+      }
+    } catch (e) {}
+    // 2. localStorage 回落
+    if (!lang) {
+      try { lang = localStorage.getItem(STORAGE_KEY) || ''; } catch (e) {}
+    }
+    // 3. OS 探测
+    if (!lang) {
+      try {
+        if (window.go && window.go.main && window.go.main.App && window.go.main.App.GetOSLanguage) {
+          lang = await window.go.main.App.GetOSLanguage();
+        }
+      } catch (e) {}
+    }
+    // 4. 浏览器语言
+    if (!lang && navigator.language) {
+      var nv = navigator.language.toLowerCase();
+      if (nv.indexOf('zh') === 0) lang = 'zh';
+      else if (nv.indexOf('ja') === 0) lang = 'ja';
+      else lang = 'en';
+    }
+    if (!DICT[lang]) lang = DEFAULT_LANG;
+    setLanguage(lang, { persist: false });
+  }
+
+  // ===== 日志短语翻译表 =====
+  // 后端 log.Printf 输出的是中文；前端在渲染前按当前语言做替换。
+  // phrases 按长→短排序，避免短语提前抢匹配（如「邮箱已被注册」 vs 「已注册」）。
+  var LOG_PHRASES = {
+    en: {
+      tags: [
+        ['[指纹]', '[Fingerprint]'],
+        ['[订阅]', '[Subscription]'],
+        ['[验活]', '[Verify]']
+      ],
+      phrases: [
+        ['密码已设置但验活失败，邮箱已消耗，不再重试', 'password set but verification failed; email consumed, no retry'],
+        ['从新邮件中获取到验证码', 'got verification code from new email'],
+        ['新邮件中未找到验证码', 'no verification code in new emails'],
+        ['刷新 Token + 查用量 + 查模型', 'refresh Token + check usage + check models'],
+        ['完成注册工作流', 'complete signup workflow'],
+        ['Profile 页面初始化', 'Profile page init'],
+        ['Signup API 初始化', 'Signup API init'],
+        ['获取 SSO Token', 'get SSO token'],
+        ['Kiro OIDC 授权', 'Kiro OIDC authorize'],
+        ['Portal 初始化', 'Portal init'],
+        ['工作流初始化', 'workflow init'],
+        ['注册 (SIGNUP)', 'signup (SIGNUP)'],
+        ['SSO 工作流', 'SSO workflow'],
+        ['OIDC 注册', 'OIDC signup'],
+        ['使用 Outlook', 'using Outlook'],
+        ['Profile 启动', 'Profile start'],
+        ['验证码已发送', 'verification code sent'],
+        ['获取到验证码', 'got verification code'],
+        ['发送验证码', 'send verification code'],
+        ['认证成功', 'auth succeeded'],
+        ['认证失败', 'auth failed'],
+        ['认证异常', 'auth error'],
+        ['设备授权', 'device authorize'],
+        ['创建身份', 'create identity'],
+        ['设置密码', 'set password'],
+        ['查用量', 'check usage'],
+        ['查模型', 'check models'],
+        ['已发送', 'sent'],
+        ['获取到', 'got'],
+        ['初始化', 'init'],
+        ['认证', 'auth'],
+        ['授权', 'authorize'],
+        ['启动', 'start'],
+        ['刷新', 'refresh'],
+        ['发送', 'send'],
+        ['获取', 'get'],
+        ['/个', '/each'],
+        ['警告：无法获取系统配置', 'warning: failed to fetch system config'],
+        ['立即终止所有注册任务', 'aborting all registration tasks immediately'],
+        ['代理请求失败，降级直连', 'proxy request failed, falling back to direct'],
+        ['代理拨号失败，降级直连', 'proxy dial failed, falling back to direct'],
+        ['已被封禁，已从输出文件移除', 'banned; removed from output file'],
+        ['配置文件格式无效，已重置', 'invalid config format; reset'],
+        ['尝试直接使用域名', 'trying domain directly'],
+        ['更新脚本已启动，程序即将退出', 'update script started; exiting'],
+        ['获取初始邮件列表失败', 'failed to fetch initial email list'],
+        ['获取初始邮件失败', 'failed to fetch initial emails'],
+        ['获取邮件数量失败', 'failed to fetch email count'],
+        ['获取系统配置失败', 'failed to fetch system config'],
+        ['获取邮件失败', 'failed to fetch emails'],
+        ['新邮件中未找到验证码', 'no verification code in new emails'],
+        ['从新邮件中获取到验证码', 'got verification code from new email'],
+        ['开始等待验证码', 'waiting for verification code'],
+        ['等待验证码', 'waiting for verification code'],
+        ['检测到熔断级错误', 'circuit-breaker level error detected'],
+        ['已注册，标记并换号', 'already registered; marking and switching'],
+        ['账号池已耗尽', 'account pool exhausted'],
+        ['无可用账号，跳过', 'no available account; skipping'],
+        ['自动使用已保存配置', 'auto-using saved config'],
+        ['自动切换到', 'auto-switching to'],
+        ['没有可用域名', 'no available domains'],
+        ['邮箱已被注册', 'email already registered'],
+        ['邮箱状态异常', 'email status abnormal'],
+        ['邮箱创建完成', 'mailbox created'],
+        ['账号已被封禁', 'account banned'],
+        ['创建 MoeMail 邮箱', 'creating MoeMail mailbox'],
+        ['创建 cloud-mail 邮箱', 'creating cloud-mail mailbox'],
+        ['生成 MoeMail 邮箱失败', 'failed to create MoeMail mailbox'],
+        ['生成 cloud-mail 邮箱失败', 'failed to create cloud-mail mailbox'],
+        ['创建邮箱失败', 'failed to create mailbox'],
+        ['创建用户失败', 'failed to create user'],
+        ['提交邮箱', 'submit email'],
+        ['重试获取登录凭证', 'retry: get login credentials'],
+        ['重试授权Kiro访问', 'retry: authorize Kiro access'],
+        ['重试获取访问令牌', 'retry: get access token'],
+        ['启动并发任务', 'starting concurrent tasks'],
+        ['启动串行任务', 'starting serial tasks'],
+        ['任务完成', 'tasks complete'],
+        ['失败明细', 'Failure breakdown'],
+        ['总耗时', 'Total time'],
+        ['平均耗时', 'Average time'],
+        ['成功结果', 'Success result'],
+        ['成功率', 'Success rate'],
+        ['保存结果失败', 'failed to save results'],
+        ['结果已保存', 'results saved'],
+        ['MoeMail 域名池', 'MoeMail domain pool'],
+        ['cloud-mail 域名池', 'cloud-mail domain pool'],
+        ['已启用代理', 'proxy enabled'],
+        ['暂无新邮件', 'no new emails'],
+        ['发送前邮件数', 'email count before send'],
+        ['初始邮件数', 'initial email count'],
+        ['初始最大 emailId', 'initial max emailId'],
+        ['基线设为 0', 'baseline set to 0'],
+        ['注册成功', 'Registration succeeded'],
+        ['注册完成', 'Registration complete'],
+        ['注册失败', 'Registration failed'],
+        ['准备重试', 'preparing to retry'],
+        ['开始注册', 'starting registration'],
+        ['验活成功', 'verification succeeded'],
+        ['验活异常', 'verification exception'],
+        ['验活失败', 'verification failed'],
+        ['Token 刷新成功', 'Token refreshed'],
+        ['Token 刷新失败', 'Token refresh failed'],
+        ['端点查询失败', 'endpoint query failed'],
+        ['端点查询异常', 'endpoint query exception'],
+        ['连续', 'consecutively'],
+        ['次 SELECT 失败，放弃等待', ' SELECT failures; giving up'],
+        ['连接失败', 'connection failed'],
+        ['请求失败', 'request failed'],
+        ['等待退避', 'waiting backoff'],
+        ['不可用', 'unavailable'],
+        ['重试中', 'retrying'],
+        ['跳过格式错误的行', 'skipping malformed line'],
+        ['当前程序路径', 'current binary path'],
+        ['开始下载更新', 'downloading update'],
+        ['下载完成', 'download complete'],
+        ['校验通过', 'checksum ok'],
+        ['校验失败', 'checksum failed'],
+        ['期望', 'expected'],
+        ['选择目录失败', 'select directory failed'],
+        ['选择文件失败', 'select file failed'],
+        ['账号封禁', 'account banned'],
+        ['网络问题', 'network issue'],
+        ['其他错误', 'other errors'],
+        ['邮箱已注册', 'email already registered'],
+        ['封新邮件', ' new emails'],
+        ['当前', 'current'],
+        ['并发数', 'concurrency'],
+        ['验证码', 'verification code'],
+        ['个域名', ' domain(s)'],
+        ['个任务', ' task(s)'],
+        ['个配置', ' config(s)'],
+        ['个数据文件', ' data file(s)'],
+        ['指纹', 'fingerprint'],
+        ['内存', 'memory'],
+        ['核心', 'cores'],
+        ['分辨率', 'resolution'],
+        ['已保存', 'saved'],
+        ['已迁移', 'migrated'],
+        ['账号', 'account'],
+        ['邮箱', 'email'],
+        ['配置', 'config'],
+        ['域名', 'domain'],
+        ['订阅', 'subscription'],
+        ['重试', 'retry'],
+        ['失败', 'failed'],
+        ['成功', 'success'],
+        ['总计', 'Total'],
+        ['熔断', 'circuit breaker'],
+        ['共', 'total'],
+        ['封', '']
+      ],
+      regexes: [
+        [/第\s*(\d+)\s*次重试/g, 'attempt $1 retry']
+      ]
+    },
+    ja: {
+      tags: [
+        ['[指纹]', '[フィンガープリント]'],
+        ['[订阅]', '[サブスク]'],
+        ['[验活]', '[認証確認]']
+      ],
+      phrases: [
+        ['密码已设置但验活失败，邮箱已消耗，不再重试', 'パスワード設定済みだがアクティベーション失敗、メール消費済みのため再試行しません'],
+        ['从新邮件中获取到验证码', '新着メールから認証コード取得'],
+        ['新邮件中未找到验证码', '新着メールに認証コードなし'],
+        ['刷新 Token + 查用量 + 查模型', 'トークン更新 + 使用量確認 + モデル確認'],
+        ['完成注册工作流', '登録ワークフロー完了'],
+        ['Profile 页面初始化', 'Profile ページ初期化'],
+        ['Signup API 初始化', 'Signup API 初期化'],
+        ['获取 SSO Token', 'SSO トークン取得'],
+        ['Kiro OIDC 授权', 'Kiro OIDC 認可'],
+        ['Portal 初始化', 'Portal 初期化'],
+        ['工作流初始化', 'ワークフロー初期化'],
+        ['注册 (SIGNUP)', '登録 (SIGNUP)'],
+        ['SSO 工作流', 'SSO ワークフロー'],
+        ['OIDC 注册', 'OIDC 登録'],
+        ['使用 Outlook', 'Outlook 使用'],
+        ['Profile 启动', 'Profile 起動'],
+        ['验证码已发送', '認証コード送信済み'],
+        ['获取到验证码', '認証コード取得'],
+        ['发送验证码', '認証コード送信'],
+        ['认证成功', '認証成功'],
+        ['认证失败', '認証失敗'],
+        ['认证异常', '認証異常'],
+        ['设备授权', 'デバイス認可'],
+        ['创建身份', 'アイデンティティ作成'],
+        ['设置密码', 'パスワード設定'],
+        ['查用量', '使用量確認'],
+        ['查模型', 'モデル確認'],
+        ['已发送', '送信済み'],
+        ['获取到', '取得'],
+        ['初始化', '初期化'],
+        ['认证', '認証'],
+        ['授权', '認可'],
+        ['启动', '起動'],
+        ['刷新', '更新'],
+        ['发送', '送信'],
+        ['获取', '取得'],
+        ['/个', '/件'],
+        ['警告：无法获取系统配置', '警告: システム設定を取得できません'],
+        ['立即终止所有注册任务', 'すべての登録タスクを即時終了'],
+        ['代理请求失败，降级直连', 'プロキシ要求失敗、直接接続にフォールバック'],
+        ['代理拨号失败，降级直连', 'プロキシダイヤル失敗、直接接続にフォールバック'],
+        ['已被封禁，已从输出文件移除', '停止済み、出力ファイルから削除'],
+        ['配置文件格式无效，已重置', '設定ファイル形式が無効、リセット'],
+        ['尝试直接使用域名', 'ドメインを直接使用してみる'],
+        ['更新脚本已启动，程序即将退出', '更新スクリプト開始、終了します'],
+        ['获取初始邮件列表失败', '初期メール一覧の取得失敗'],
+        ['获取初始邮件失败', '初期メール取得失敗'],
+        ['获取邮件数量失败', 'メール件数取得失敗'],
+        ['获取系统配置失败', 'システム設定取得失敗'],
+        ['获取邮件失败', 'メール取得失敗'],
+        ['新邮件中未找到验证码', '新着メールに認証コードなし'],
+        ['从新邮件中获取到验证码', '新着メールから認証コード取得'],
+        ['开始等待验证码', '認証コード待機開始'],
+        ['等待验证码', '認証コード待機中'],
+        ['检测到熔断级错误', 'サーキットブレーカー級エラーを検出'],
+        ['已注册，标记并换号', '既に登録済み、マークして切替'],
+        ['账号池已耗尽', 'アカウントプール枯渇'],
+        ['无可用账号，跳过', '利用可能なアカウントなし、スキップ'],
+        ['自动使用已保存配置', '保存済み設定を自動使用'],
+        ['自动切换到', '自動切替先'],
+        ['没有可用域名', '利用可能なドメインなし'],
+        ['邮箱已被注册', 'メールは既に登録済み'],
+        ['邮箱状态异常', 'メール状態異常'],
+        ['邮箱创建完成', 'メール作成完了'],
+        ['账号已被封禁', 'アカウント停止'],
+        ['创建 MoeMail 邮箱', 'MoeMail メール作成中'],
+        ['创建 cloud-mail 邮箱', 'cloud-mail メール作成中'],
+        ['生成 MoeMail 邮箱失败', 'MoeMail メール作成失敗'],
+        ['生成 cloud-mail 邮箱失败', 'cloud-mail メール作成失敗'],
+        ['创建邮箱失败', 'メール作成失敗'],
+        ['创建用户失败', 'ユーザー作成失敗'],
+        ['提交邮箱', 'メール送信'],
+        ['重试获取登录凭证', '再試行: ログイン認証情報を取得'],
+        ['重试授权Kiro访问', '再試行: Kiro アクセス認可'],
+        ['重试获取访问令牌', '再試行: アクセストークン取得'],
+        ['启动并发任务', '並行タスク開始'],
+        ['启动串行任务', '直列タスク開始'],
+        ['任务完成', 'タスク完了'],
+        ['失败明细', '失敗内訳'],
+        ['总耗时', '総時間'],
+        ['平均耗时', '平均時間'],
+        ['成功结果', '成功結果'],
+        ['成功率', '成功率'],
+        ['保存结果失败', '結果保存失敗'],
+        ['结果已保存', '結果保存済み'],
+        ['MoeMail 域名池', 'MoeMail ドメインプール'],
+        ['cloud-mail 域名池', 'cloud-mail ドメインプール'],
+        ['已启用代理', 'プロキシ有効'],
+        ['暂无新邮件', '新着メールなし'],
+        ['发送前邮件数', '送信前メール件数'],
+        ['初始邮件数', '初期メール件数'],
+        ['初始最大 emailId', '初期最大 emailId'],
+        ['基线设为 0', 'ベースライン 0 に設定'],
+        ['注册成功', '登録成功'],
+        ['注册完成', '登録完了'],
+        ['注册失败', '登録失敗'],
+        ['准备重试', '再試行準備中'],
+        ['开始注册', '登録開始'],
+        ['验活成功', 'アクティベーション成功'],
+        ['验活异常', 'アクティベーション異常'],
+        ['验活失败', 'アクティベーション失敗'],
+        ['Token 刷新成功', 'トークン更新成功'],
+        ['Token 刷新失败', 'トークン更新失敗'],
+        ['端点查询失败', 'エンドポイント問い合わせ失敗'],
+        ['端点查询异常', 'エンドポイント問い合わせ異常'],
+        ['连续', '連続'],
+        ['次 SELECT 失败，放弃等待', '回 SELECT 失敗、待機を断念'],
+        ['连接失败', '接続失敗'],
+        ['请求失败', '要求失敗'],
+        ['等待退避', 'バックオフ待機'],
+        ['不可用', '利用不可'],
+        ['重试中', '再試行中'],
+        ['跳过格式错误的行', '不正な形式の行をスキップ'],
+        ['当前程序路径', '現在のバイナリパス'],
+        ['开始下载更新', '更新ダウンロード開始'],
+        ['下载完成', 'ダウンロード完了'],
+        ['校验通过', 'チェックサム OK'],
+        ['校验失败', 'チェックサム失敗'],
+        ['期望', '期待'],
+        ['选择目录失败', 'ディレクトリ選択失敗'],
+        ['选择文件失败', 'ファイル選択失敗'],
+        ['账号封禁', 'アカウント停止'],
+        ['网络问题', 'ネットワーク問題'],
+        ['其他错误', 'その他エラー'],
+        ['邮箱已注册', 'メール登録済み'],
+        ['封新邮件', ' 件の新着メール'],
+        ['当前', '現在'],
+        ['并发数', '並行数'],
+        ['验证码', '認証コード'],
+        ['个域名', ' ドメイン'],
+        ['个任务', ' タスク'],
+        ['个配置', ' 設定'],
+        ['个数据文件', ' データファイル'],
+        ['指纹', 'フィンガープリント'],
+        ['内存', 'メモリ'],
+        ['核心', 'コア'],
+        ['分辨率', '解像度'],
+        ['已保存', '保存済み'],
+        ['已迁移', '移行済み'],
+        ['账号', 'アカウント'],
+        ['邮箱', 'メール'],
+        ['配置', '設定'],
+        ['域名', 'ドメイン'],
+        ['订阅', 'サブスク'],
+        ['重试', '再試行'],
+        ['失败', '失敗'],
+        ['成功', '成功'],
+        ['总计', '合計'],
+        ['熔断', 'サーキットブレーカー'],
+        ['共', '合計'],
+        ['封', '']
+      ],
+      regexes: [
+        [/第\s*(\d+)\s*次重试/g, '再試行 $1 回目']
+      ]
+    }
+  };
+
+  // translateLog: 把后端中文日志按当前语言替换为对应译文。
+  // 中文模式或未知语言直接返回原文。
+  function translateLog(text) {
+    if (!text) return text;
+    var lang = getLanguage();
+    if (lang === 'zh' || !LOG_PHRASES[lang]) return text;
+    var rules = LOG_PHRASES[lang];
+    var out = text;
+    var i;
+    for (i = 0; i < rules.tags.length; i++) {
+      out = out.split(rules.tags[i][0]).join(rules.tags[i][1]);
+    }
+    for (i = 0; i < rules.phrases.length; i++) {
+      out = out.split(rules.phrases[i][0]).join(rules.phrases[i][1]);
+    }
+    for (i = 0; i < rules.regexes.length; i++) {
+      out = out.replace(rules.regexes[i][0], rules.regexes[i][1]);
+    }
+    return out;
+  }
+
+  window.I18N = {
+    t: t,
+    applyI18n: applyI18n,
+    setLanguage: setLanguage,
+    getLanguage: getLanguage,
+    init: init,
+    DICT: DICT,
+    translateLog: translateLog
+  };
+  // 顶层快捷函数
+  window.t = t;
+})();

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "KiroX",
+  "outputfilename": "kirox",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "author": {
+    "name": "wp",
+    "email": "w13461544040@163.com"
+  },
+  "info": {
+    "companyName": "Auto-Kiro",
+    "productName": "KiroX",
+    "productVersion": "1.0.0",
+    "copyright": "Copyright © 2026",
+    "comments": "AWS Builder ID 自动注册工具",
+    "icon": "build/appicon.png"
+  },
+  "wailsjsdir": "./frontend",
+  "assetdir": "./frontend/dist",
+  "build:dir": "./build"
+}
