@@ -4,6 +4,7 @@
 
 var proxyPool = [];        // 来自后端的真实条目（含 id）
 var pendingEmptyRows = 1;  // 还未保存的空行数（最少 1 个）
+var proxySelectedIds = {}; // 已勾选的代理 id 集合
 
 function escapeProxyHtml(s) {
   if (s == null) return '';
@@ -19,7 +20,12 @@ async function loadProxyPool() {
   } catch (e) {
     proxyPool = [];
   }
-  // 若已有保存条目，就不再强制显示空行；没有时保留 1 个空行
+  // 清理已删除条目的选中状态
+  var existingIds = {};
+  proxyPool.forEach(function(p) { existingIds[p.id] = true; });
+  Object.keys(proxySelectedIds).forEach(function(id) {
+    if (!existingIds[id]) delete proxySelectedIds[id];
+  });
   pendingEmptyRows = proxyPool.length ? 0 : 1;
   renderProxyPool();
 }
@@ -28,7 +34,6 @@ function renderProxyPool() {
   var box = document.getElementById('proxy-pool-list');
   if (!box) return;
 
-  // 计算预估命中率（多于 1 条时显示百分比）
   var multi = (proxyPool.length + pendingEmptyRows) > 1;
   var totalSoft = 0;
   var soft = proxyPool.map(function(p) {
@@ -38,19 +43,45 @@ function renderProxyPool() {
   });
   for (var i = 0; i < soft.length; i++) totalSoft += soft[i];
 
+  var selectedCount = Object.keys(proxySelectedIds).length;
+  var allChecked = proxyPool.length > 0 && selectedCount === proxyPool.length;
+
   var html = '';
+
+  // 批量操作工具栏（有已保存条目时显示）
+  if (proxyPool.length > 0) {
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:6px 8px;background:var(--bg-subtle);border-radius:6px;border:1px solid var(--border);">' +
+      '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--text-secondary);">' +
+        '<input type="checkbox" id="proxy-select-all" ' + (allChecked ? 'checked' : '') + ' onchange="proxyToggleSelectAll(this.checked)" style="cursor:pointer;">' +
+        '全选' +
+      '</label>' +
+      '<span style="font-size:12px;color:var(--text-muted);">已选 ' + selectedCount + '/' + proxyPool.length + '</span>' +
+      '<div style="margin-left:auto;display:flex;gap:6px;">' +
+        '<button id="btn-batch-test-all" type="button" onclick="batchTestProxies(null)" class="btn btn-secondary btn-sm">测试全部</button>' +
+        (selectedCount > 0
+          ? '<button id="btn-batch-test-selected" type="button" onclick="batchTestProxies(Object.keys(proxySelectedIds))" class="btn btn-secondary btn-sm">测试选中 (' + selectedCount + ')</button>' +
+            '<button type="button" onclick="deleteSelectedProxies()" class="btn btn-sm" style="background:var(--danger);color:#fff;border:none;">删除选中 (' + selectedCount + ')</button>'
+          : '') +
+      '</div>' +
+    '</div>';
+  }
 
   // 已保存条目
   for (var idx = 0; idx < proxyPool.length; idx++) {
     var p = proxyPool[idx];
     var pct = (multi && totalSoft > 0) ? (Math.round(soft[idx] / totalSoft * 1000) / 10) : null;
+    var checked = proxySelectedIds[p.id] ? 'checked' : '';
     html += (
-      '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">' +
-        '<input type="text" value="' + escapeProxyHtml(p.url) + '" placeholder="留空=直连" onchange="updateProxyEntryURL(\'' + p.id + '\', this.value)" class="form-input" style="flex:1;font-family:var(--font-mono);font-size:12px;">' +
-        '<input type="number" min="1" max="100" value="' + (p.weight || 1) + '" title="权重 1-100" onchange="updateProxyEntry(\'' + p.id + '\', \'weight\', this.value)" style="width:54px;text-align:center;padding:4px;border:1px solid var(--border);border-radius:4px;background:var(--bg-subtle);font-size:12px;">' +
-        (pct != null ? '<span style="font-size:11px;color:var(--text-muted);min-width:42px;text-align:right;">' + pct + '%</span>' : '') +
-        '<button type="button" onclick="testProxyEntryByIdx(' + idx + ')" class="btn btn-secondary btn-sm">测试</button>' +
-        '<button type="button" onclick="deleteProxyEntry(\'' + p.id + '\')" class="btn btn-secondary btn-sm" style="color:var(--danger);">删除</button>' +
+      '<div style="display:flex;flex-direction:column;gap:3px;margin-bottom:6px;">' +
+        '<div style="display:flex;align-items:center;gap:6px;">' +
+          '<input type="checkbox" ' + checked + ' onchange="proxyToggleSelect(\'' + p.id + '\', this.checked)" style="cursor:pointer;flex-shrink:0;">' +
+          '<input type="text" value="' + escapeProxyHtml(p.url) + '" placeholder="留空=直连" onchange="updateProxyEntryURL(\'' + p.id + '\', this.value)" class="form-input" style="flex:1;font-family:var(--font-mono);font-size:12px;">' +
+          '<input type="number" min="1" max="100" value="' + (p.weight || 1) + '" title="权重 1-100" onchange="updateProxyEntry(\'' + p.id + '\', \'weight\', this.value)" style="width:54px;text-align:center;padding:4px;border:1px solid var(--border);border-radius:4px;background:var(--bg-subtle);font-size:12px;">' +
+          (pct != null ? '<span style="font-size:11px;color:var(--text-muted);min-width:42px;text-align:right;">' + pct + '%</span>' : '') +
+          '<button type="button" onclick="testProxyEntryByIdx(' + idx + ')" class="btn btn-secondary btn-sm">测试</button>' +
+          '<button type="button" onclick="deleteProxyEntry(\'' + p.id + '\')" class="btn btn-secondary btn-sm" style="color:var(--danger);">删除</button>' +
+        '</div>' +
+        '<span id="proxy-test-status-' + p.id + '" style="display:none;margin-left:24px;font-size:11px;padding:2px 8px;border-radius:4px;font-family:var(--font-mono);align-items:center;max-width:calc(100% - 24px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>' +
       '</div>'
     );
   }
@@ -60,6 +91,7 @@ function renderProxyPool() {
     var rowIdx = j;
     html += (
       '<div data-pending-idx="' + rowIdx + '" style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">' +
+        '<input type="checkbox" disabled style="opacity:0;flex-shrink:0;">' +
         '<input type="text" placeholder="留空=直连，或填入代理地址" onblur="savePendingProxyRow(' + rowIdx + ', this.value)" onkeydown="if(event.key===\'Enter\'){this.blur();}" class="form-input" style="flex:1;font-family:var(--font-mono);font-size:12px;">' +
         '<input type="number" min="1" max="100" value="1" data-pending-weight="' + rowIdx + '" title="权重 1-100" style="width:54px;text-align:center;padding:4px;border:1px solid var(--border);border-radius:4px;background:var(--bg-subtle);font-size:12px;">' +
         (proxyPool.length + pendingEmptyRows > 1
@@ -70,6 +102,47 @@ function renderProxyPool() {
   }
 
   box.innerHTML = html;
+}
+
+function proxyToggleSelect(id, checked) {
+  if (checked) {
+    proxySelectedIds[id] = true;
+  } else {
+    delete proxySelectedIds[id];
+  }
+  renderProxyPool();
+}
+
+function proxyToggleSelectAll(checked) {
+  proxySelectedIds = {};
+  if (checked) {
+    proxyPool.forEach(function(p) { proxySelectedIds[p.id] = true; });
+  }
+  renderProxyPool();
+}
+
+async function deleteSelectedProxies() {
+  var ids = Object.keys(proxySelectedIds);
+  if (ids.length === 0) return;
+  showConfirmModal(
+    '批量删除代理',
+    '确认删除选中的 ' + ids.length + ' 个代理？',
+    '确认删除',
+    async function() {
+      try {
+        var res = await window.go.main.App.DeleteProxyEntries(ids);
+        if (res && res.error) {
+          showToast(res.error, 'error');
+          return;
+        }
+        proxySelectedIds = {};
+        showToast('已删除 ' + (res.removed || ids.length) + ' 个代理');
+        await loadProxyPool();
+      } catch (e) {
+        showToast('删除失败: ' + e.message, 'error');
+      }
+    }
+  );
 }
 
 function addEmptyProxyRow() {
@@ -270,16 +343,92 @@ async function deleteProxyEntry(id, silent) {
 async function testProxyEntryByIdx(idx) {
   var p = proxyPool[idx];
   if (!p || !p.url) return;
-  showToast('正在测试…');
+  // 立即在行内显示 loading 状态
+  setProxyRowTestStatus(p.id, 'loading', '测试中…');
   try {
     var info = await window.go.main.App.TestProxyEntry(p.url);
     if (info && info.ok) {
       var loc = [info.country, info.region, info.city].filter(Boolean).join(' · ');
-      showToast((info.scheme || '').toUpperCase() + ' · ' + (info.ip || '') + (loc ? ' (' + loc + ')' : ''));
+      var label = (info.scheme || '').toUpperCase() + ' · ' + (info.ip || '') + (loc ? ' (' + loc + ')' : '');
+      setProxyRowTestStatus(p.id, 'ok', label);
     } else {
-      showToast('不可用: ' + ((info && info.error) || '未知错误'), 'error');
+      setProxyRowTestStatus(p.id, 'error', (info && info.error) || '不可用');
     }
   } catch (e) {
-    showToast('测试失败: ' + e.message, 'error');
+    setProxyRowTestStatus(p.id, 'error', e.message || '测试失败');
+  }
+}
+
+// 设置某行的测试状态标签
+function setProxyRowTestStatus(id, state, text) {
+  var el = document.getElementById('proxy-test-status-' + id);
+  if (!el) return;
+  el.style.display = 'inline-flex';
+  if (state === 'loading') {
+    el.style.color = 'var(--text-muted)';
+    el.style.background = 'var(--bg-subtle)';
+    el.style.border = '1px solid var(--border)';
+    el.innerHTML = '<span style="display:inline-block;width:10px;height:10px;border:2px solid var(--text-muted);border-top-color:transparent;border-radius:50%;animation:proxy-spin 0.6s linear infinite;margin-right:4px;flex-shrink:0;"></span>' + escapeProxyHtml(text);
+  } else if (state === 'ok') {
+    el.style.color = '#059669';
+    el.style.background = '#ecfdf5';
+    el.style.border = '1px solid #6ee7b7';
+    el.innerHTML = '✓ ' + escapeProxyHtml(text);
+  } else {
+    el.style.color = '#dc2626';
+    el.style.background = '#fef2f2';
+    el.style.border = '1px solid #fca5a5';
+    el.innerHTML = '✗ ' + escapeProxyHtml(text);
+  }
+}
+
+// 批量测试代理：ids 为空则测试全部，否则只测试指定 id
+async function batchTestProxies(idsToTest) {
+  if (proxyPool.length === 0) {
+    showToast('代理池为空', 'error');
+    return;
+  }
+  var targets = idsToTest && idsToTest.length > 0 ? idsToTest : proxyPool.map(function(p) { return p.id; });
+  if (targets.length === 0) {
+    showToast('没有可测试的代理', 'error');
+    return;
+  }
+
+  // 立即把目标行置为 loading
+  targets.forEach(function(id) { setProxyRowTestStatus(id, 'loading', '测试中…'); });
+
+  // 禁用批量测试按钮，防止重复触发
+  var btn = document.getElementById('btn-batch-test-all');
+  var btnSel = document.getElementById('btn-batch-test-selected');
+  if (btn) { btn.disabled = true; btn.textContent = '测试中…'; }
+  if (btnSel) { btnSel.disabled = true; }
+
+  try {
+    var results = await window.go.main.App.BatchTestProxies(targets);
+    var ok = 0, fail = 0;
+    targets.forEach(function(id) {
+      var info = results[id];
+      if (!info) {
+        setProxyRowTestStatus(id, 'error', '无结果');
+        fail++;
+        return;
+      }
+      if (info.ok) {
+        var loc = [info.country, info.region, info.city].filter(Boolean).join(' · ');
+        var label = (info.scheme || '').toUpperCase() + ' · ' + (info.ip || '') + (loc ? ' (' + loc + ')' : '');
+        setProxyRowTestStatus(id, 'ok', label);
+        ok++;
+      } else {
+        setProxyRowTestStatus(id, 'error', info.error || '不可用');
+        fail++;
+      }
+    });
+    showToast('测试完成：' + ok + ' 可用，' + fail + ' 不可用');
+  } catch (e) {
+    targets.forEach(function(id) { setProxyRowTestStatus(id, 'error', '测试失败'); });
+    showToast('批量测试失败: ' + e.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '测试全部'; }
+    if (btnSel) { btnSel.disabled = false; }
   }
 }

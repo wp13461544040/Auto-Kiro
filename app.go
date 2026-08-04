@@ -86,6 +86,15 @@ func (a *App) GetOverview() map[string]interface{} {
 	// 当前任务状态
 	taskStatus := task.Manager.GetStatus()
 
+	// 代理池统计
+	proxyList := proxy.List()
+	proxyEnabled := 0
+	for _, p := range proxyList {
+		if p.Enabled && p.URL != "" {
+			proxyEnabled++
+		}
+	}
+
 	return map[string]interface{}{
 		"version": updater.GetCurrentVersion(),
 		"kiro": map[string]interface{}{
@@ -100,6 +109,11 @@ func (a *App) GetOverview() map[string]interface{} {
 			"registered": outlookRegistered,
 			"success":    outlookSuccess,
 			"pending":    outlookPending,
+			"failed":     outlookRegistered - outlookSuccess,
+		},
+		"proxy": map[string]interface{}{
+			"total":   len(proxyList),
+			"enabled": proxyEnabled,
 		},
 	}
 }
@@ -434,6 +448,19 @@ func accountFromMap(m map[string]interface{}) subscription.Account {
 	}
 }
 
+// DeleteOutputAccount 从 accounts.json 中删除指定邮箱的账号
+func (a *App) DeleteOutputAccount(email string) map[string]interface{} {
+	removed, err := data.DeleteAccount(storage.GetResultOutputDir(), email)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	if !removed {
+		return map[string]interface{}{"success": false, "error": "账号不存在"}
+	}
+	subscription.DeleteCache(storage.GetDataDir(), email)
+	return map[string]interface{}{"success": true}
+}
+
 // LoadOutputAccounts 读取当前输出目录下 accounts.json 中的账号列表，并附带已缓存的订阅链接信息
 func (a *App) LoadOutputAccounts() map[string]interface{} {
 	items, err := data.LoadAccounts(storage.GetResultOutputDir())
@@ -580,8 +607,23 @@ func (a *App) DeleteProxyEntry(id string) map[string]interface{} {
 	return map[string]interface{}{"success": true}
 }
 
+// DeleteProxyEntries 批量删除代理（按 id 列表）
+func (a *App) DeleteProxyEntries(ids []string) map[string]interface{} {
+	removed, err := proxy.DeleteBatch(ids)
+	if err != nil {
+		return map[string]interface{}{"error": err.Error()}
+	}
+	return map[string]interface{}{"success": true, "removed": removed}
+}
+
 // TestProxyEntry 测试某条代理是否可用
 func (a *App) TestProxyEntry(rawURL string) proxy.Info {
 	normalized := storage.NormalizeProxyAddress(rawURL)
 	return proxy.Detect(normalized)
+}
+
+// BatchTestProxies 并发批量测试代理，返回 id→Info 的映射。
+// ids 为空时测试代理池内所有条目。并发数限制为 10，避免网络拥塞。
+func (a *App) BatchTestProxies(ids []string) map[string]proxy.Info {
+	return proxy.BatchTest(ids)
 }

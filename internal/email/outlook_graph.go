@@ -147,8 +147,8 @@ func waitForOTPGraph(acc OutlookAccount, timeout, interval int, codeRegex *regex
 	isAlias := strings.Contains(strings.SplitN(acc.Email, "@", 2)[0], "+")
 	targetEmail := strings.ToLower(acc.Email)
 
-	// 时间窗口：只接受最近 1 分钟内收到的邮件
-	startTime := time.Now()
+	// 时间窗口：拉取最近 3 分钟内收到的邮件（往前推留余量，避免发送/投递延迟导致遗漏）
+	startTime := time.Now().Add(-2 * time.Minute)
 
 	maxRetries := timeout / interval
 	for attempt := 1; attempt <= maxRetries; attempt++ {

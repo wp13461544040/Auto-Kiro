@@ -6,7 +6,6 @@ import (
 	"log"
 	"math/rand"
 	"os"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -126,16 +125,10 @@ func startTask(req StartTaskRequest) map[string]interface{} {
 			return map[string]interface{}{"error": "没有可用的 Outlook 账号（所有账号已注册成功）"}
 		}
 
-		// 子账号（含 + 别名）优先注册，主账号排最后
-		sort.SliceStable(outlookAccounts, func(i, j int) bool {
-			iIsAlias := strings.Contains(strings.SplitN(outlookAccounts[i].Email, "@", 2)[0], "+")
-			jIsAlias := strings.Contains(strings.SplitN(outlookAccounts[j].Email, "@", 2)[0], "+")
-			// 子账号 < 主账号（子账号排前面）
-			if iIsAlias && !jIsAlias {
-				return true
-			}
-			return false
-		})
+		// 对账号列表进行交错排列：
+		// 1. 子账号按主账号分组，同组子账号轮询交错，避免同一主账号的子账号连续执行
+		// 2. 所有子账号排在主账号前面
+		outlookAccounts = interleaveOutlookAccounts(outlookAccounts)
 
 		if len(outlookAccounts) < req.Count {
 			Manager.mu.Unlock()
@@ -761,6 +754,57 @@ func runBatch(req StartTaskRequest, emailProvider string, outlookAccounts []emai
 			}
 		}
 	}
+}
+
+// interleaveOutlookAccounts 对账号列表进行交错排列：
+// - 子账号按主账号（mailboxEmail/splitFrom）分组
+// - 同组子账号轮询交错，避免连续执行同一主账号的子账号
+// - 主账号排在所有子账号之后
+func interleaveOutlookAccounts(accounts []email.OutlookAccount) []email.OutlookAccount {
+	// 分离主账号和子账号
+	var masters []email.OutlookAccount
+	// key: 主账号地址, value: 该主账号的子账号列表
+	groupMap := make(map[string][]email.OutlookAccount)
+	groupOrder := make([]string, 0) // 保持主账号出现顺序
+
+	for _, acc := range accounts {
+		localPart := strings.SplitN(acc.Email, "@", 2)[0]
+		isAlias := strings.Contains(localPart, "+")
+		if !isAlias {
+			masters = append(masters, acc)
+			continue
+		}
+		// 子账号：用 MailboxEmail 作为分组 key
+		key := acc.MailboxEmail
+		if key == "" {
+			key = "unknown"
+		}
+		if _, exists := groupMap[key]; !exists {
+			groupOrder = append(groupOrder, key)
+		}
+		groupMap[key] = append(groupMap[key], acc)
+	}
+
+	// 轮询交错：每轮从每组取一个子账号
+	result := make([]email.OutlookAccount, 0, len(accounts))
+	maxLen := 0
+	for _, key := range groupOrder {
+		if len(groupMap[key]) > maxLen {
+			maxLen = len(groupMap[key])
+		}
+	}
+	for round := 0; round < maxLen; round++ {
+		for _, key := range groupOrder {
+			group := groupMap[key]
+			if round < len(group) {
+				result = append(result, group[round])
+			}
+		}
+	}
+
+	// 主账号追加到末尾
+	result = append(result, masters...)
+	return result
 }
 
 // classifyError 根据错误信息粗分类，用于统计展示。

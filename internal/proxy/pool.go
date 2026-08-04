@@ -190,6 +190,34 @@ func Delete(id string) error {
 	return fmt.Errorf("代理不存在")
 }
 
+// DeleteBatch 按 id 列表批量删除
+func DeleteBatch(ids []string) (int, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	idSet := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		idSet[id] = struct{}{}
+	}
+	poolMu.Lock()
+	defer poolMu.Unlock()
+	loadPoolLocked()
+	newEntries := poolEntries[:0:0]
+	removed := 0
+	for _, e := range poolEntries {
+		if _, del := idSet[e.ID]; del {
+			removed++
+		} else {
+			newEntries = append(newEntries, e)
+		}
+	}
+	if removed == 0 {
+		return 0, nil
+	}
+	poolEntries = newEntries
+	return removed, savePoolLocked()
+}
+
 // PickRandom 按权重抽签返回一个启用的代理 URL；池为空或全部禁用返回空串。
 // 使用 weightPower 软化：让低权重也有非零概率被命中，避免全部任务落到单一代理。
 func PickRandom() string {
@@ -239,4 +267,57 @@ func HasEnabled() bool {
 		}
 	}
 	return false
+}
+
+// BatchTest 并发测试代理池条目，ids 为空则测试全部。
+// 并发上限 10，按 ID 返回测试结果映射。
+func BatchTest(ids []string) map[string]Info {
+	poolMu.Lock()
+	loadPoolLocked()
+	// 确定需要测试的条目
+	var targets []PoolEntry
+	if len(ids) == 0 {
+		targets = make([]PoolEntry, len(poolEntries))
+		copy(targets, poolEntries)
+	} else {
+		idSet := make(map[string]struct{}, len(ids))
+		for _, id := range ids {
+			idSet[id] = struct{}{}
+		}
+		for _, e := range poolEntries {
+			if _, ok := idSet[e.ID]; ok {
+				targets = append(targets, e)
+			}
+		}
+	}
+	poolMu.Unlock()
+
+	if len(targets) == 0 {
+		return map[string]Info{}
+	}
+
+	const maxConcurrency = 10
+	sem := make(chan struct{}, maxConcurrency)
+	type result struct {
+		id   string
+		info Info
+	}
+	ch := make(chan result, len(targets))
+
+	for _, entry := range targets {
+		e := entry
+		sem <- struct{}{}
+		go func() {
+			defer func() { <-sem }()
+			info := Detect(e.URL)
+			ch <- result{id: e.ID, info: info}
+		}()
+	}
+
+	out := make(map[string]Info, len(targets))
+	for i := 0; i < len(targets); i++ {
+		r := <-ch
+		out[r.id] = r.info
+	}
+	return out
 }

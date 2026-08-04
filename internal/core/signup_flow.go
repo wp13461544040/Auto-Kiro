@@ -140,7 +140,26 @@ func (r *Registrar) Step7_5SignupInit() error {
 	if wh, ok := data["workflowStateHandle"].(string); ok {
 		r.WorkflowHandle = wh
 	}
-	if data["stepId"] != "start" {
+
+	// 若第一次响应已经包含 workflowID，直接提取并跳过第二次请求
+	if redir, ok := data["redirect"].(map[string]interface{}); ok {
+		if rurl, ok := redir["url"].(string); ok && strings.Contains(rurl, "workflowID=") {
+			wid := httputil.SplitAfter(rurl, "workflowID=")
+			if i := strings.IndexByte(wid, '#'); i >= 0 {
+				wid = wid[:i]
+			}
+			if wid != "" {
+				r.WorkflowID = wid
+				return nil
+			}
+		}
+	}
+
+	stepID, _ := data["stepId"].(string)
+	if stepID != "start" {
+		if r.Cfg.Debug {
+			log.Printf("[DEBUG] Signup init 第一次响应 stepId=%v, body=%s", data["stepId"], string(body)[:min(500, len(body))])
+		}
 		return fmt.Errorf("Signup init 返回意外 stepId: %v", data["stepId"])
 	}
 
@@ -169,6 +188,8 @@ func (r *Registrar) Step7_5SignupInit() error {
 	if wh, ok := data["workflowStateHandle"].(string); ok {
 		r.WorkflowHandle = wh
 	}
+
+	// 方式1: 从 redirect.url 中提取 workflowID
 	if redir, ok := data["redirect"].(map[string]interface{}); ok {
 		if rurl, ok := redir["url"].(string); ok && strings.Contains(rurl, "workflowID=") {
 			wid := httputil.SplitAfter(rurl, "workflowID=")
@@ -178,7 +199,20 @@ func (r *Registrar) Step7_5SignupInit() error {
 			r.WorkflowID = wid
 		}
 	}
+
+	// 方式2: 从顶层字段 workflowID / workflowId 提取
 	if r.WorkflowID == "" {
+		if wid, ok := data["workflowID"].(string); ok && wid != "" {
+			r.WorkflowID = wid
+		} else if wid, ok := data["workflowId"].(string); ok && wid != "" {
+			r.WorkflowID = wid
+		}
+	}
+
+	if r.WorkflowID == "" {
+		if r.Cfg.Debug {
+			log.Printf("[DEBUG] Signup init 响应: %s", string(body)[:min(500, len(body))])
+		}
 		return fmt.Errorf("Signup init 未返回 workflowID")
 	}
 	return nil

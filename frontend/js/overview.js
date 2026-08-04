@@ -38,6 +38,8 @@ async function loadTaskStatus() {
 // updateOverviewUI 更新概览界面
 function updateOverviewUI(data) {
   var kiro = data.kiro || {};
+  var outlook = data.outlook || {};
+  var proxy = data.proxy || {};
 
   // Kiro 状态徽章
   var kiroStatusEl = document.getElementById('ov-kiro-status');
@@ -51,13 +53,37 @@ function updateOverviewUI(data) {
     }
   }
 
-  // 本次任务成功数 + 成功率（来自实时任务状态）
+  // 本次任务成功数 + 成功率
   var taskSuccess = kiro.taskSuccess || 0;
   var taskFailed = kiro.taskFailed || 0;
   var taskTotal = taskSuccess + taskFailed;
   setText('ov-kiro-success', taskSuccess);
   var successRate = taskTotal > 0 ? Math.round(taskSuccess / taskTotal * 100) : 0;
   setText('ov-kiro-success-rate', successRate + '%');
+
+  // 邮箱池统计卡
+  var outlookTotal = outlook.total || 0;
+  setText('ov-outlook-total', outlookTotal);
+
+  // 邮箱池详情
+  setText('ov-ol-total', outlookTotal);
+  setText('ov-ol-pending', outlook.pending || 0);
+  setText('ov-ol-success', outlook.success || 0);
+  setText('ov-ol-failed', outlook.failed || 0);
+
+  // 代理统计卡
+  var proxyTotal = proxy.total || 0;
+  var proxyEnabled = proxy.enabled || 0;
+  var proxyEl = document.getElementById('ov-proxy-total');
+  if (proxyEl) {
+    if (proxyTotal === 0) {
+      proxyEl.textContent = '直连';
+      proxyEl.style.color = 'var(--text-muted)';
+    } else {
+      proxyEl.textContent = proxyEnabled + '/' + proxyTotal;
+      proxyEl.style.color = proxyEnabled > 0 ? 'var(--success)' : 'var(--danger)';
+    }
+  }
 }
 
 // 辅助函数

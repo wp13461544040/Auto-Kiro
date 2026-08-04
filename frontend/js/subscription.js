@@ -39,12 +39,17 @@ function escapeHtml(s) {
 }
 
 async function reloadSubscriptionAccounts() {
+  var reloadBtn = document.querySelector('button[onclick="reloadSubscriptionAccounts()"]');
+  if (reloadBtn) { reloadBtn.disabled = true; reloadBtn.textContent = '加载中...'; }
   var res;
   try {
     res = await window.go.main.App.LoadOutputAccounts();
   } catch (e) {
-    showToast(_subT('subscription.loadFailed', '加载账号失败') + ': ' + e, 'error');
+    showToast('加载账号失败: ' + e, 'error');
+    if (reloadBtn) { reloadBtn.disabled = false; reloadBtn.textContent = '重新加载账号'; }
     return;
+  } finally {
+    if (reloadBtn) { reloadBtn.disabled = false; reloadBtn.textContent = '重新加载账号'; }
   }
   var hint = document.getElementById('sub-output-dir');
   if (hint) {
@@ -115,6 +120,8 @@ function renderSubTable() {
     var iconFetch = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/></svg>';
     var iconRefetch = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>';
 
+    var iconDelete = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>';
+
     var actions = '';
     if (a.status === 'success' && a.url) {
       actions =
@@ -123,14 +130,15 @@ function renderSubTable() {
     }
     var isRefetch = a.status === 'success' || a.status === 'error' || a.status === 'suspended';
     actions +=
-      '<button class="btn btn-dark btn-sm" onclick="fetchOneSubLink(' + idx + ')"' + (a.status === 'loading' ? ' disabled' : '') + '>' + (isRefetch ? _subT('subscription.refetch', '重新获取') : _subT('subscription.fetch', '获取')) + '</button>';
+      '<button class="btn btn-dark btn-sm" onclick="fetchOneSubLink(' + idx + ')"' + (a.status === 'loading' ? ' disabled' : '') + '>' + (isRefetch ? _subT('subscription.refetch', '重新获取') : _subT('subscription.fetch', '获取')) + '</button>' +
+      '<button style="' + btnStyle + 'color:var(--danger);" title="删除账号" onclick="deleteOutputAccount(\'' + escapeHtml(a.email).replace(/'/g, "\\'") + '\')">' + iconDelete + '</button>';
 
     return (
       '<tr style="border-top:1px solid var(--border);">' +
         '<td style="padding:8px 12px;"><input type="checkbox" data-sub-idx="' + idx + '" ' + (a.selected ? 'checked' : '') + ' onchange="toggleSubRow(' + idx + ', this.checked)"></td>' +
         '<td style="padding:8px;color:var(--muted);font-size:12px;">' + (idx + 1) + '</td>' +
         '<td style="padding:8px;">' + escapeHtml(a.email) + '</td>' +
-        '<td style="padding:8px;font-size:12px;color:var(--muted);">' + escapeHtml(a.subscription) + '</td>' +
+        '<td style="padding:8px;font-size:12px;color:var(--muted);">' + (escapeHtml(a.subscription) || '<span style="color:var(--text-muted);font-style:italic;">未订阅</span>') + '</td>' +
         '<td style="padding:8px;font-size:12px;">' + statusHtml + '</td>' +
         '<td style="padding:8px 12px;text-align:right;display:flex;gap:4px;justify-content:flex-end;">' + actions + '</td>' +
       '</tr>'
@@ -377,6 +385,30 @@ function closeSubErrorModal() {
 function copySubErrorDetail() {
   var text = document.getElementById('sub-error-modal-body').textContent;
   navigator.clipboard.writeText(text).then(function() { showToast(_subT('subscription.errCopied', '已复制错误详情')); });
+}
+
+async function deleteOutputAccount(email) {
+  showConfirmModal(
+    '删除账号',
+    '确认从输出文件中删除账号 ' + email + '？',
+    '确认删除',
+    async function() {
+      try {
+        var res = await window.go.main.App.DeleteOutputAccount(email);
+        if (res && res.error) {
+          showToast(res.error, 'error');
+          return;
+        }
+        showToast('账号已删除');
+        var idx = subState.accounts.findIndex(function(a) { return a.email === email; });
+        if (idx >= 0) subState.accounts.splice(idx, 1);
+        renderSubTable();
+        updateSubProgress();
+      } catch (e) {
+        showToast('删除失败: ' + e.message, 'error');
+      }
+    }
+  );
 }
 
 // 语言切换后重新渲染动态内容（表格行、进度条文本）
