@@ -114,10 +114,15 @@ function renderOutlookPage() {
         : _accT('status.unregistered', '未注册');
       var statusColor = acc.registered ? (acc.success ? 'var(--success)' : 'var(--danger)') : 'var(--text-muted)';
       var addedTime = acc.addedAt ? acc.addedAt.substring(5, 16) : '-';
+      var emailEscaped = acc.email.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      var isAlias = (acc.email.split('@')[0] || '').indexOf('+') !== -1;
       html += '<tr><td>' + (globalIdx+1) + '</td><td>' + acc.email + '</td>';
       html += '<td style="color:' + statusColor + ';font-weight:600;">' + status + '</td>';
       html += '<td style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">' + addedTime + '</td>';
-      html += '<td style="text-align:right;"><a href="javascript:void(0)" onclick="deleteOutlookAccount(\'' + acc.email + '\')" style="color:var(--danger);">' + _accT('common.delete', '删除') + '</a></td></tr>';
+      html += '<td style="text-align:right;white-space:nowrap;">' +
+        (!isAlias ? '<a href="javascript:void(0)" onclick="splitOutlookAccount(\'' + emailEscaped + '\')" style="color:var(--accent);margin-right:10px;">' + _accT('accounts.split', '分裂') + '</a>' : '') +
+        '<a href="javascript:void(0)" onclick="deleteOutlookAccount(\'' + emailEscaped + '\')" style="color:var(--danger);">' + _accT('common.delete', '删除') + '</a>' +
+        '</td></tr>';
     });
     tbody.innerHTML = html;
 
@@ -212,6 +217,63 @@ function clearRegisteredOutlookAccounts() {
 function openOutlookModal() {
   switchPage('accounts');
   loadOutlookAccountsList();
+}
+
+// ===== 分裂账号 =====
+
+function splitOutlookAccount(email) {
+  // 弹出分裂数量输入框
+  var modalHtml = '<div id="split-outlook-modal" class="modal-overlay show" style="z-index:1200;">' +
+    '<div style="width:100%;max-width:380px;padding:24px;">' +
+    '<div class="card" style="padding:28px;">' +
+    '<div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px;">' + _accT('accounts.splitTitle', '分裂账号') + '</div>' +
+    '<div style="font-size:12px;color:var(--text-muted);margin-bottom:16px;line-height:1.5;">' +
+      _accT('accounts.splitDesc', { email: email }, '将 {email} 分裂为多个别名账号（最多 50 个），别名账号共享同一收件箱。') +
+    '</div>' +
+    '<div style="margin-bottom:16px;">' +
+    '<label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:6px;">' + _accT('accounts.splitCount', '分裂数量') + ' (1 - 100)</label>' +
+    '<input type="number" id="split-count-input" value="10" min="1" max="100" class="form-input" style="width:100%;">' +
+    '</div>' +
+    '<div class="btn-row">' +
+    '<button onclick="closeSplitModal()" class="btn btn-secondary" style="flex:1;justify-content:center;" data-i18n="common.cancel">取消</button>' +
+    '<button onclick="doSplitOutlookAccount(\'' + email.replace(/'/g, "\\'") + '\')" class="btn btn-dark" style="flex:1;justify-content:center;">' + _accT('accounts.splitConfirm', '确认分裂') + '</button>' +
+    '</div>' +
+    '</div></div></div>';
+
+  var container = document.createElement('div');
+  container.id = 'split-modal-container';
+  container.innerHTML = modalHtml;
+  document.body.appendChild(container);
+}
+
+function closeSplitModal() {
+  var el = document.getElementById('split-modal-container');
+  if (el) el.remove();
+}
+
+async function doSplitOutlookAccount(email) {
+  var countInput = document.getElementById('split-count-input');
+  var count = parseInt(countInput ? countInput.value : '10', 10);
+  if (isNaN(count) || count < 1) count = 1;
+  if (count > 100) count = 100;
+
+  closeSplitModal();
+
+  try {
+    var result = await window.go.main.App.SplitOutlookAccount(email, count);
+    if (result.error) {
+      showToast(result.error, 'error');
+      return;
+    }
+    await loadOutlookAccountsList();
+    var msg = _accT('accounts.splitSuccess', { n: result.added, total: result.total }, '已分裂 {n} 个别名账号，当前共 {total} 个');
+    if (result.splitCount && result.remainingSlot !== undefined) {
+      msg += ' (' + _accT('accounts.splitQuota', { used: result.splitCount, remaining: result.remainingSlot }, '已用 {used}/100，剩余 {remaining}') + ')';
+    }
+    showToast(msg);
+  } catch(e) {
+    showToast(_accT('accounts.splitFailed', '分裂失败') + ': ' + e.message, 'error');
+  }
 }
 
 // ===== 自动刷新（停留在邮箱池页时每 3 秒刷新状态） =====

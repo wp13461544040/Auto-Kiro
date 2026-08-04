@@ -1,11 +1,19 @@
 ﻿package email
 
 import (
+	"fmt"
+	"math/rand"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/wp13461544040/Auto-Kiro/internal/storage"
 )
+
+const maxSplitCount = 100
+
+// splitCharsets 分裂后缀随机字符集
+var splitCharsets = "abcdefghijklmnopqrstuvwxyz0123456789"
 
 // ParseOutlook 解析 Outlook 账号
 func ParseOutlook(data string) map[string]interface{} {
@@ -157,4 +165,123 @@ func ImportOutlookFile(filePath string) map[string]interface{} {
 
 	// 使用现有的解析和添加逻辑
 	return AddOutlookAccounts(string(data))
+}
+
+// SplitOutlookAccount 将单个 Outlook 账号分裂为最多 maxSplitCount 个别名账号并添加到账号池
+// email 格式：user@domain.com，分裂后生成 user+xxx@domain.com 形式的别名
+// count：期望生成的子账号数量（1~100），但会检查已有子账号数量，总数不超过 100
+func SplitOutlookAccount(sourceEmail string, count int) map[string]interface{} {
+	if count < 1 {
+		count = 1
+	}
+	if count > maxSplitCount {
+		count = maxSplitCount
+	}
+
+	// 找到源账号
+	accounts := storage.GetAccountsCached()
+	var source map[string]interface{}
+	for _, acc := range accounts {
+		if em, _ := acc["email"].(string); em == sourceEmail {
+			source = acc
+			break
+		}
+	}
+	if source == nil {
+		return map[string]interface{}{"error": "未找到源账号: " + sourceEmail}
+	}
+
+	// 解析邮箱用户名和域名
+	atIdx := strings.LastIndex(sourceEmail, "@")
+	if atIdx < 1 {
+		return map[string]interface{}{"error": "邮箱格式无效"}
+	}
+	localPart := sourceEmail[:atIdx]
+	domain := sourceEmail[atIdx+1:]
+
+	// 去掉原始 localPart 中已有的 +tag 或 -tag（避免重复分裂）
+	if plusIdx := strings.Index(localPart, "+"); plusIdx > 0 {
+		localPart = localPart[:plusIdx]
+	}
+
+	// 统计该主账号已有的子账号数量
+	existingSplitCount := 0
+	for _, acc := range accounts {
+		if splitFrom, _ := acc["splitFrom"].(string); splitFrom == sourceEmail {
+			existingSplitCount++
+		}
+	}
+
+	// 检查是否已达上限
+	if existingSplitCount >= maxSplitCount {
+		return map[string]interface{}{"error": fmt.Sprintf("该账号已分裂 %d 个子账号，已达上限", existingSplitCount)}
+	}
+
+	// 限制本次分裂数量，确保总数不超过 100
+	remainingQuota := maxSplitCount - existingSplitCount
+	if count > remainingQuota {
+		count = remainingQuota
+	}
+
+	// 收集已存在的邮箱，避免重复
+	existingEmails := make(map[string]struct{}, len(accounts))
+	for _, acc := range accounts {
+		if em, _ := acc["email"].(string); em != "" {
+			existingEmails[strings.ToLower(em)] = struct{}{}
+		}
+	}
+
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	generateSuffix := func(n int) string {
+		b := make([]byte, n)
+		for i := range b {
+			b[i] = splitCharsets[rng.Intn(len(splitCharsets))]
+		}
+		return string(b)
+	}
+
+	now := time.Now().Format("2006-01-02 15:04:05")
+	password, _ := source["password"].(string)
+	clientID, _ := source["clientId"].(string)
+	refreshToken, _ := source["refreshToken"].(string)
+	mode, _ := source["mode"].(string)
+
+	addedCount := 0
+	storage.ModifyAccountsCached(func(existing []map[string]interface{}) []map[string]interface{} {
+		attempt := 0
+		maxAttempt := count * 10 // 防止无限循环
+		for addedCount < count && attempt < maxAttempt {
+			attempt++
+			suffix := generateSuffix(6)
+			aliasEmail := fmt.Sprintf("%s+%s@%s", localPart, suffix, domain)
+			aliasEmailLower := strings.ToLower(aliasEmail)
+
+			if _, exists := existingEmails[aliasEmailLower]; exists {
+				continue
+			}
+			existingEmails[aliasEmailLower] = struct{}{}
+
+			existing = append(existing, map[string]interface{}{
+				"email":         aliasEmail,
+				"password":      password,
+				"clientId":      clientID,
+				"refreshToken":  refreshToken,
+				"mode":          mode,
+				"registered":    false,
+				"success":       false,
+				"addedAt":       now,
+				"splitFrom":     sourceEmail,
+				"mailboxEmail":  sourceEmail, // IMAP/Graph 认证用主账号地址
+			})
+			addedCount++
+		}
+		return existing
+	})
+
+	return map[string]interface{}{
+		"added":         addedCount,
+		"total":         len(storage.GetAccountsCached()),
+		"splitCount":    existingSplitCount + addedCount,
+		"remainingSlot": maxSplitCount - existingSplitCount - addedCount,
+	}
 }

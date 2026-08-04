@@ -253,11 +253,10 @@ func (r *Registrar) Step9SendOTP() error {
 	if r.Cfg.UseOutlook && r.Cfg.OutlookAccount != nil {
 		count, err := email.GetInboxCount(*r.Cfg.OutlookAccount)
 		if err != nil {
-			log.Printf("获取邮件数量失败: %v, 默认为0", err)
-		} else {
-			r.OutlookMailCount = count
-			log.Printf("发送前邮件数: %d", count)
+			return fmt.Errorf("获取邮件数量失败: %v", err)
 		}
+		r.OutlookMailCount = count
+		log.Printf("发送前邮件数: %d", count)
 	}
 
 	ref := fmt.Sprintf("%s/?workflowID=%s", r.Cfg.ProfileBase, r.WorkflowID)

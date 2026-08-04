@@ -21,11 +21,21 @@ import (
 
 // OutlookAccount Outlook 邮箱账号
 type OutlookAccount struct {
-	Email        string
+	Email        string // 注册/收件用的地址（可以是别名，如 user+tag@outlook.com）
 	Password     string
 	ClientID     string
 	RefreshToken string
 	Mode         string
+	MailboxEmail string // IMAP/Graph 登录用的主账号地址（别名账号时不同于 Email）
+}
+
+// mailboxEmail 返回用于 IMAP 认证的真实 mailbox 地址
+// 别名账号（含 +）必须用主账号地址登录，否则服务器报 "not connected"
+func (a OutlookAccount) mailboxEmail() string {
+	if a.MailboxEmail != "" {
+		return a.MailboxEmail
+	}
+	return a.Email
 }
 
 // ParseOutlookCSV 解析 outlook.csv
@@ -128,6 +138,7 @@ func (a OutlookAccount) mailMode() string {
 }
 
 // RefreshOutlookToken 用 refresh_token 获取 access_token（优先走全局代理，失败时降级直连）
+// 注意：token 刷新与邮箱地址无关，只需 clientId + refreshToken
 func RefreshOutlookToken(acc OutlookAccount) (string, error) {
 	form := url.Values{
 		"client_id":     {acc.ClientID},
@@ -248,6 +259,9 @@ func (c *imapClient) readUntilTag(tag string) ([]string, string, error) {
 	}
 }
 
+// errNotConnected 表示 Outlook mailbox 后端尚未就绪，需要重新建连
+var errNotConnected = fmt.Errorf("not connected")
+
 func (c *imapClient) authenticate(email, accessToken string) error {
 	xoauth2 := buildXOAuth2(email, accessToken)
 	tag, err := c.sendCommand("AUTHENTICATE XOAUTH2 " + xoauth2)
@@ -259,27 +273,14 @@ func (c *imapClient) authenticate(email, accessToken string) error {
 		return err
 	}
 	if !strings.Contains(result, "OK") {
+		// "not connected" 是 mailbox 后端未就绪的瞬态错误，返回哨兵让调用方重建连接
+		if strings.Contains(strings.ToLower(result), "not connected") {
+			return errNotConnected
+		}
 		return fmt.Errorf("认证失败: %s", result)
 	}
 	log.Println("[IMAP] 认证成功")
-
-	// 发送 NOOP 确保会话完全就绪（Outlook 有时认证后需要额外握手）
-	for i := 0; i < 3; i++ {
-		noopTag, err := c.sendCommand("NOOP")
-		if err != nil {
-			return err
-		}
-		_, noopResult, err := c.readUntilTag(noopTag)
-		if err != nil {
-			return err
-		}
-		if strings.Contains(noopResult, "OK") {
-			break
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-
-	// Outlook Exchange 后端认证后需要额外时间建立 mailbox 连接，否则 SELECT 会返回 "not connected"
+	// 认证成功后等待 mailbox 后端就绪
 	time.Sleep(2 * time.Second)
 	return nil
 }
@@ -304,6 +305,9 @@ func (c *imapClient) selectInbox() (int, error) {
 	}
 	// "not connected" 表示 Outlook 后端尚未就绪，同连接重试无效，由调用方重连后重试
 	errMsg := strings.TrimSpace(result)
+	if strings.Contains(strings.ToLower(errMsg), "not connected") {
+		return 0, errNotConnected
+	}
 	if len(errMsg) > 80 {
 		errMsg = errMsg[:80] + "..."
 	}
@@ -315,41 +319,63 @@ func (c *imapClient) close() {
 	c.conn.Close()
 }
 
-// fetchLatestBody 获取指定邮件的正文并解码
-func (c *imapClient) fetchLatestBody(seq int) (string, error) {
+// fetchMessageToAndBody 同时获取指定邮件的 To 头和正文
+func (c *imapClient) fetchMessageToAndBody(seq int) (toHeader string, body string, err error) {
 	if seq <= 0 {
-		return "", fmt.Errorf("无效的邮件序号")
+		return "", "", fmt.Errorf("无效的邮件序号")
 	}
-	tag, err := c.sendCommand(fmt.Sprintf("FETCH %d (BODY.PEEK[TEXT])", seq))
-	if err != nil {
-		return "", err
+	tag, cmdErr := c.sendCommand(fmt.Sprintf("FETCH %d (BODY.PEEK[HEADER.FIELDS (TO)] BODY.PEEK[TEXT])", seq))
+	if cmdErr != nil {
+		return "", "", cmdErr
 	}
-	lines, result, err := c.readUntilTag(tag)
-	if err != nil {
-		return "", err
+	lines, result, readErr := c.readUntilTag(tag)
+	if readErr != nil {
+		return "", "", readErr
 	}
 	if !strings.Contains(result, "OK") {
-		return "", fmt.Errorf("FETCH TEXT 失败: %s", result)
+		return "", "", fmt.Errorf("FETCH 失败: %s", result)
 	}
 
-	var rawLines []string
-	inBody := false
+	// 解析多段 FETCH 响应
+	// 响应格式：
+	//   * N FETCH (BODY[HEADER.FIELDS (TO)] {len}\r\nTo: ...\r\n\r\n BODY[TEXT] {len}\r\n...\r\n)
+	inTo := false
+	inText := false
+	var toLines, textLines []string
 	for _, line := range lines {
-		if strings.Contains(line, "FETCH") {
-			inBody = true
+		upper := strings.ToUpper(line)
+		if strings.Contains(upper, "BODY[HEADER.FIELDS") {
+			inTo = true
+			inText = false
+			continue
+		}
+		if strings.Contains(upper, "BODY[TEXT]") {
+			inTo = false
+			inText = true
 			continue
 		}
 		if line == ")" {
+			inTo = false
+			inText = false
 			continue
 		}
-		if inBody {
-			rawLines = append(rawLines, line)
+		if inTo {
+			toLines = append(toLines, line)
+		} else if inText {
+			textLines = append(textLines, line)
 		}
 	}
 
-	raw := strings.Join(rawLines, "\n")
+	// 提取 To 值
+	for _, l := range toLines {
+		if strings.HasPrefix(strings.ToUpper(l), "TO:") {
+			toHeader = strings.TrimSpace(l[3:])
+			break
+		}
+	}
 
-	// 尝试解码 MIME base64 内容
+	// 解码正文（复用原有逻辑）
+	raw := strings.Join(textLines, "\n")
 	parts := strings.Split(raw, "------=_Part_")
 	var decoded string
 	for _, part := range parts {
@@ -368,10 +394,8 @@ func (c *imapClient) fetchLatestBody(seq int) (string, error) {
 		}
 	}
 	if decoded != "" {
-		return decoded, nil
+		return toHeader, decoded, nil
 	}
-
-	// 整体 base64 解码
 	cleaned := strings.Map(func(r rune) rune {
 		if r == ' ' || r == '\n' || r == '\r' || r == '\t' {
 			return -1
@@ -379,10 +403,9 @@ func (c *imapClient) fetchLatestBody(seq int) (string, error) {
 		return r
 	}, raw)
 	if data, err := base64.StdEncoding.DecodeString(cleaned); err == nil {
-		return string(data), nil
+		return toHeader, string(data), nil
 	}
-
-	return raw, nil
+	return toHeader, raw, nil
 }
 
 // WaitForOTP 通过 IMAP 轮询等待 AWS 验证码
@@ -394,6 +417,12 @@ func WaitForOTP(acc OutlookAccount, beforeCount, timeout, interval int) (string,
 	}
 
 	log.Printf("[Outlook IMAP] 等待验证码, 邮箱=%s, 发送前邮件数=%d", acc.Email, beforeCount)
+
+	// 是否为别名账号（含 + 号），需过滤 To 字段
+	localPart := strings.SplitN(acc.Email, "@", 2)[0]
+	isAlias := strings.Contains(localPart, "+")
+	targetEmail := strings.ToLower(acc.Email)
+
 	accessToken, err := RefreshOutlookToken(acc)
 	if err != nil {
 		return "", fmt.Errorf("刷新 Outlook Token 失败: %v", err)
@@ -401,7 +430,7 @@ func WaitForOTP(acc OutlookAccount, beforeCount, timeout, interval int) (string,
 
 	maxRetries := timeout / interval
 	consecutiveSelectFail := 0
-	maxConsecutiveSelectFail := 3 // 连续 3 次 SELECT 失败则提前放弃，避免单账号卡住整批
+	maxConsecutiveSelectFail := 3
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		client, err := newIMAPClient()
 		if err != nil {
@@ -412,8 +441,13 @@ func WaitForOTP(acc OutlookAccount, beforeCount, timeout, interval int) (string,
 			continue
 		}
 
-		if err := client.authenticate(acc.Email, accessToken); err != nil {
+		if err := client.authenticate(acc.mailboxEmail(), accessToken); err != nil {
 			client.close()
+			if err == errNotConnected {
+				// mailbox 未就绪，直接重建连接，不刷 token
+				time.Sleep(time.Duration(interval) * time.Second)
+				continue
+			}
 			accessToken, _ = RefreshOutlookToken(acc)
 			time.Sleep(time.Duration(interval) * time.Second)
 			continue
@@ -422,6 +456,11 @@ func WaitForOTP(acc OutlookAccount, beforeCount, timeout, interval int) (string,
 		total, err := client.selectInbox()
 		if err != nil {
 			client.close()
+			if err == errNotConnected {
+				// mailbox 未就绪，重建连接，不计入连续失败
+				time.Sleep(time.Duration(interval) * time.Second)
+				continue
+			}
 			consecutiveSelectFail++
 			if consecutiveSelectFail >= maxConsecutiveSelectFail {
 				log.Printf("[Outlook IMAP] 邮箱 %s 连续 %d 次 SELECT 失败，放弃等待", acc.Email, consecutiveSelectFail)
@@ -431,7 +470,7 @@ func WaitForOTP(acc OutlookAccount, beforeCount, timeout, interval int) (string,
 			time.Sleep(time.Duration(interval) * time.Second)
 			continue
 		}
-		consecutiveSelectFail = 0 // 成功则重置
+		consecutiveSelectFail = 0
 
 		if total <= beforeCount {
 			client.close()
@@ -443,8 +482,12 @@ func WaitForOTP(acc OutlookAccount, beforeCount, timeout, interval int) (string,
 		}
 
 		for i := total; i > beforeCount; i-- {
-			body, err := client.fetchLatestBody(i)
+			toHeader, body, err := client.fetchMessageToAndBody(i)
 			if err != nil {
+				continue
+			}
+			// 别名账号：验证 To 头包含目标别名地址
+			if isAlias && !strings.Contains(strings.ToLower(toHeader), targetEmail) {
 				continue
 			}
 			code := extractCodeFromText(body, codeRegex)
@@ -475,29 +518,50 @@ func GetInboxCount(acc OutlookAccount) (int, error) {
 	}
 
 	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
+	for attempt := 0; attempt < 5; attempt++ {
 		if attempt > 0 {
-			time.Sleep(time.Duration(1+attempt) * time.Second)
+			waitSec := time.Duration(3+attempt*2) * time.Second
+			log.Printf("[IMAP] GetInboxCount 重连重试 %d/5，等待 %s...", attempt+1, waitSec)
+			time.Sleep(waitSec)
 		}
 		client, err := newIMAPClient()
 		if err != nil {
 			lastErr = fmt.Errorf("连接 IMAP 失败: %v", err)
 			continue
 		}
-		if err := client.authenticate(acc.Email, accessToken); err != nil {
+		authErr := client.authenticate(acc.mailboxEmail(), accessToken)
+		if authErr != nil {
 			client.close()
-			lastErr = fmt.Errorf("IMAP 认证失败: %v", err)
+			if authErr == errNotConnected {
+				// mailbox 未就绪，重新建连即可，无需刷新 token
+				log.Printf("[IMAP] GetInboxCount mailbox 未就绪，重建连接...")
+				lastErr = authErr
+				continue
+			}
+			// 其他认证错误，刷新 token 后重试
+			lastErr = fmt.Errorf("IMAP 认证失败: %v", authErr)
+			accessToken, _ = RefreshOutlookToken(acc)
 			continue
 		}
 		total, err := client.selectInbox()
 		if err != nil {
 			client.close()
+			if err == errNotConnected {
+				log.Printf("[IMAP] GetInboxCount SELECT mailbox 未就绪，重建连接...")
+				lastErr = err
+				continue
+			}
 			lastErr = fmt.Errorf("选择收件箱失败: %v", err)
-			log.Printf("[IMAP] GetInboxCount 失败，重连重试 %d/3...", attempt+1)
 			continue
 		}
 		client.close()
 		return total, nil
 	}
-	return 0, lastErr
+	return 0, wrapNotConnectedErr(lastErr)
+}
+func wrapNotConnectedErr(err error) error {
+	if err == errNotConnected {
+		return fmt.Errorf("IMAP mailbox 未就绪 (not connected)，请稍后重试")
+	}
+	return err
 }

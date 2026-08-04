@@ -6,6 +6,7 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -107,6 +108,7 @@ func startTask(req StartTaskRequest) map[string]interface{} {
 				clientID, _ := acc["clientId"].(string)
 				refreshToken, _ := acc["refreshToken"].(string)
 				mode, _ := acc["mode"].(string)
+				mailboxEmail, _ := acc["mailboxEmail"].(string)
 
 				outlookAccounts = append(outlookAccounts, email.OutlookAccount{
 					Email:        emailAddr,
@@ -114,6 +116,7 @@ func startTask(req StartTaskRequest) map[string]interface{} {
 					ClientID:     clientID,
 					RefreshToken: refreshToken,
 					Mode:         mode,
+					MailboxEmail: mailboxEmail,
 				})
 			}
 		}
@@ -122,6 +125,17 @@ func startTask(req StartTaskRequest) map[string]interface{} {
 			Manager.mu.Unlock()
 			return map[string]interface{}{"error": "没有可用的 Outlook 账号（所有账号已注册成功）"}
 		}
+
+		// 子账号（含 + 别名）优先注册，主账号排最后
+		sort.SliceStable(outlookAccounts, func(i, j int) bool {
+			iIsAlias := strings.Contains(strings.SplitN(outlookAccounts[i].Email, "@", 2)[0], "+")
+			jIsAlias := strings.Contains(strings.SplitN(outlookAccounts[j].Email, "@", 2)[0], "+")
+			// 子账号 < 主账号（子账号排前面）
+			if iIsAlias && !jIsAlias {
+				return true
+			}
+			return false
+		})
 
 		if len(outlookAccounts) < req.Count {
 			Manager.mu.Unlock()
@@ -604,14 +618,17 @@ func runBatch(req StartTaskRequest, emailProvider string, outlookAccounts []emai
 			}
 		}
 
-		// 只有设置完密码后（passwordSet=true）才标记邮箱为已注册
-		// 之前步骤失败的邮箱不标记，等同于归还到邮箱池
+		// 更新账号状态：
+		// - passwordSet=true：邮箱已在 AWS 侧消耗，无论成功失败都标记
+		// - passwordSet=false 且 success=false：注册流程中途失败，同样标记为失败，避免重复消耗
 		if taskConfig.UseOutlook && currentEmail != "" {
 			passwordSet, _ := result["passwordSet"].(bool)
 			if passwordSet {
 				email.UpdateAccountStatus(currentEmail, true, success)
+			} else if !success {
+				// 未到设密码阶段就失败的账号，标记为失败以便清理
+				email.UpdateAccountStatus(currentEmail, true, false)
 			}
-			// 未设密码的失败邮箱不标记 registered，下次任务可继续使用
 		}
 		if success {
 			if err := data.SaveKiroSuccess(result, outDir); err != nil {

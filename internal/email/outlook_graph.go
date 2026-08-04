@@ -19,14 +19,34 @@ type outlookGraphBody struct {
 }
 
 type outlookGraphMessage struct {
-	Subject          string           `json:"subject"`
-	BodyPreview      string           `json:"bodyPreview"`
-	Body             outlookGraphBody `json:"body"`
-	ReceivedDateTime string           `json:"receivedDateTime"`
+	Subject          string                       `json:"subject"`
+	BodyPreview      string                       `json:"bodyPreview"`
+	Body             outlookGraphBody             `json:"body"`
+	ReceivedDateTime string                       `json:"receivedDateTime"`
+	ToRecipients     []outlookGraphRecipient      `json:"toRecipients"`
+}
+
+type outlookGraphRecipient struct {
+	EmailAddress outlookGraphEmailAddress `json:"emailAddress"`
+}
+
+type outlookGraphEmailAddress struct {
+	Address string `json:"address"`
 }
 
 func (m outlookGraphMessage) searchText() string {
 	return strings.Join([]string{m.BodyPreview, m.Subject, m.Body.Content}, "\n")
+}
+
+// deliveredTo 返回邮件所有收件人地址（小写）
+func (m outlookGraphMessage) deliveredTo() []string {
+	addrs := make([]string, 0, len(m.ToRecipients))
+	for _, r := range m.ToRecipients {
+		if r.EmailAddress.Address != "" {
+			addrs = append(addrs, strings.ToLower(r.EmailAddress.Address))
+		}
+	}
+	return addrs
 }
 
 type outlookGraphMessagesResponse struct {
@@ -122,6 +142,10 @@ func waitForOTPGraph(acc OutlookAccount, beforeCount, timeout, interval int, cod
 		return "", fmt.Errorf("刷新 Graph Token 失败: %v", err)
 	}
 
+	// 是否为别名账号（含 + 号），需过滤 To 字段
+	isAlias := strings.Contains(strings.SplitN(acc.Email, "@", 2)[0], "+")
+	targetEmail := strings.ToLower(acc.Email)
+
 	maxRetries := timeout / interval
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		total, err := getInboxCountGraphWithToken(accessToken)
@@ -140,12 +164,26 @@ func waitForOTPGraph(acc OutlookAccount, beforeCount, timeout, interval int, cod
 		if limit > 10 {
 			limit = 10
 		}
-		path := fmt.Sprintf("/me/mailFolders/inbox/messages?$top=%d&$orderby=receivedDateTime%%20desc&$select=subject,bodyPreview,body,receivedDateTime", limit)
+		// 不用 $select 限制，确保 toRecipients 字段正常返回
+		path := fmt.Sprintf("/me/mailFolders/inbox/messages?$top=%d&$orderby=receivedDateTime%%20desc", limit)
 		var messages outlookGraphMessagesResponse
 		if err := outlookGraphGet(accessToken, path, &messages); err != nil {
 			return "", err
 		}
 		for _, msg := range messages.Value {
+			// 别名账号：要求 To 中包含该别名地址，防止取到其他子账号的验证码
+			if isAlias {
+				matched := false
+				for _, addr := range msg.deliveredTo() {
+					if addr == targetEmail {
+						matched = true
+						break
+					}
+				}
+				if !matched {
+					continue
+				}
+			}
 			if code := extractCodeFromText(msg.searchText(), codeRegex); code != "" {
 				return code, nil
 			}

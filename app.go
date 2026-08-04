@@ -215,6 +215,11 @@ func (a *App) ImportOutlookFile(filePath string) map[string]interface{} {
 	return email.ImportOutlookFile(filePath)
 }
 
+// SplitOutlookAccount 将单个 Outlook 账号分裂为最多 50 个别名账号
+func (a *App) SplitOutlookAccount(sourceEmail string, count int) map[string]interface{} {
+	return email.SplitOutlookAccount(sourceEmail, count)
+}
+
 // ---- MailNest ----
 
 func (a *App) TestMailNestConnection(configJSON string) map[string]interface{} {
