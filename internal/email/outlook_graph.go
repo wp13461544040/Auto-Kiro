@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -136,7 +137,7 @@ func getInboxCountGraphWithToken(accessToken string) (int, error) {
 	return folder.TotalItemCount, nil
 }
 
-func waitForOTPGraph(acc OutlookAccount, beforeCount, timeout, interval int, codeRegex *regexp.Regexp) (string, error) {
+func waitForOTPGraph(acc OutlookAccount, timeout, interval int, codeRegex *regexp.Regexp) (string, error) {
 	accessToken, err := refreshOutlookGraphToken(acc)
 	if err != nil {
 		return "", fmt.Errorf("刷新 Graph Token 失败: %v", err)
@@ -146,30 +147,26 @@ func waitForOTPGraph(acc OutlookAccount, beforeCount, timeout, interval int, cod
 	isAlias := strings.Contains(strings.SplitN(acc.Email, "@", 2)[0], "+")
 	targetEmail := strings.ToLower(acc.Email)
 
+	// 时间窗口：只接受最近 1 分钟内收到的邮件
+	startTime := time.Now()
+
 	maxRetries := timeout / interval
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		total, err := getInboxCountGraphWithToken(accessToken)
-		if err != nil {
-			return "", err
-		}
-		if total <= beforeCount {
-			time.Sleep(time.Duration(interval) * time.Second)
-			continue
-		}
-
-		limit := total - beforeCount
-		if limit < 1 {
-			limit = 1
-		}
-		if limit > 10 {
-			limit = 10
-		}
-		// 不用 $select 限制，确保 toRecipients 字段正常返回
-		path := fmt.Sprintf("/me/mailFolders/inbox/messages?$top=%d&$orderby=receivedDateTime%%20desc", limit)
+		// 用 $filter 只拉取 startTime 之后收到的邮件
+		filterTime := startTime.UTC().Format("2006-01-02T15:04:05Z")
+		path := fmt.Sprintf("/me/mailFolders/inbox/messages?$filter=receivedDateTime ge %s&$orderby=receivedDateTime desc&$top=20", filterTime)
 		var messages outlookGraphMessagesResponse
 		if err := outlookGraphGet(accessToken, path, &messages); err != nil {
 			return "", err
 		}
+		if len(messages.Value) == 0 {
+			if attempt%5 == 0 {
+				log.Printf("[Outlook Graph] [%d/%d] 暂无最近邮件...", attempt, maxRetries)
+			}
+			time.Sleep(time.Duration(interval) * time.Second)
+			continue
+		}
+
 		for _, msg := range messages.Value {
 			// 别名账号：要求 To 中包含该别名地址，防止取到其他子账号的验证码
 			if isAlias {
@@ -185,10 +182,14 @@ func waitForOTPGraph(acc OutlookAccount, beforeCount, timeout, interval int, cod
 				}
 			}
 			if code := extractCodeFromText(msg.searchText(), codeRegex); code != "" {
+				log.Printf("[Outlook Graph] 获取到验证码: %s", code)
 				return code, nil
 			}
 		}
 
+		if attempt%5 == 0 {
+			log.Printf("[Outlook Graph] [%d/%d] 最近邮件中未找到验证码...", attempt, maxRetries)
+		}
 		time.Sleep(time.Duration(interval) * time.Second)
 	}
 	return "", fmt.Errorf("等待验证码超时 (%ds)", timeout)

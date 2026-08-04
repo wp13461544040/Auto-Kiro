@@ -249,15 +249,8 @@ func (r *Registrar) Step8ProfileStart() error {
 func (r *Registrar) Step9SendOTP() error {
 	log.Println("[9] 发送验证码")
 
-	// Outlook 模式: 记录发送前的邮件数量
-	if r.Cfg.UseOutlook && r.Cfg.OutlookAccount != nil {
-		count, err := email.GetInboxCount(*r.Cfg.OutlookAccount)
-		if err != nil {
-			return fmt.Errorf("获取邮件数量失败: %v", err)
-		}
-		r.OutlookMailCount = count
-		log.Printf("发送前邮件数: %d", count)
-	}
+	// Outlook 模式：改为时间窗口过滤，不再需要发送前邮件数量
+	// WaitForOTP 会自动只检查调用时刻之后 1 分钟内到达的邮件
 
 	ref := fmt.Sprintf("%s/?workflowID=%s", r.Cfg.ProfileBase, r.WorkflowID)
 	timeOnPage := 5000 + rand.Intn(3001)

@@ -319,7 +319,127 @@ func (c *imapClient) close() {
 	c.conn.Close()
 }
 
-// fetchMessageToAndBody 同时获取指定邮件的 To 头和正文
+// fetchRecentSeqs 用 IMAP SEARCH 查询指定时间之后到达的邮件序号列表（降序）
+func (c *imapClient) fetchRecentSeqs(since time.Time) ([]int, error) {
+	// IMAP SEARCH SINCE 只支持日期精度，用 SENTSINCE 不够准；
+	// 改用 SINCE（内部日期）+ 序号降序遍历配合时间戳二次过滤
+	// 先用 SEARCH SINCE <date> 缩小范围，再在 fetchMessageToAndBody 阶段读 Date 头
+	dateStr := since.UTC().Format("2-Jan-2006") // IMAP date format: 2-Jan-2006
+	tag, err := c.sendCommand(fmt.Sprintf("SEARCH SINCE %s", dateStr))
+	if err != nil {
+		return nil, err
+	}
+	lines, result, err := c.readUntilTag(tag)
+	if err != nil {
+		return nil, err
+	}
+	if !strings.Contains(result, "OK") {
+		return nil, fmt.Errorf("SEARCH 失败: %s", result)
+	}
+	var seqs []int
+	for _, line := range lines {
+		if strings.HasPrefix(line, "* SEARCH") {
+			parts := strings.Fields(line)
+			for _, p := range parts[2:] {
+				var n int
+				if _, err := fmt.Sscanf(p, "%d", &n); err == nil && n > 0 {
+					seqs = append(seqs, n)
+				}
+			}
+		}
+	}
+	// 降序排列（最新的先处理）
+	for i, j := 0, len(seqs)-1; i < j; i, j = i+1, j-1 {
+		seqs[i], seqs[j] = seqs[j], seqs[i]
+	}
+	return seqs, nil
+}
+
+// fetchMessageToBodyAndDate 同时获取指定邮件的 To 头、Date 头和正文
+func (c *imapClient) fetchMessageToBodyAndDate(seq int) (toHeader, dateHeader, body string, err error) {
+	if seq <= 0 {
+		return "", "", "", fmt.Errorf("无效的邮件序号")
+	}
+	tag, cmdErr := c.sendCommand(fmt.Sprintf("FETCH %d (BODY.PEEK[HEADER.FIELDS (TO DATE)] BODY.PEEK[TEXT])", seq))
+	if cmdErr != nil {
+		return "", "", "", cmdErr
+	}
+	lines, result, readErr := c.readUntilTag(tag)
+	if readErr != nil {
+		return "", "", "", readErr
+	}
+	if !strings.Contains(result, "OK") {
+		return "", "", "", fmt.Errorf("FETCH 失败: %s", result)
+	}
+
+	inHeader := false
+	inText := false
+	var headerLines, textLines []string
+	for _, line := range lines {
+		upper := strings.ToUpper(line)
+		if strings.Contains(upper, "BODY[HEADER.FIELDS") {
+			inHeader = true
+			inText = false
+			continue
+		}
+		if strings.Contains(upper, "BODY[TEXT]") {
+			inHeader = false
+			inText = true
+			continue
+		}
+		if line == ")" {
+			inHeader = false
+			inText = false
+			continue
+		}
+		if inHeader {
+			headerLines = append(headerLines, line)
+		} else if inText {
+			textLines = append(textLines, line)
+		}
+	}
+
+	for _, l := range headerLines {
+		upper := strings.ToUpper(l)
+		if strings.HasPrefix(upper, "TO:") {
+			toHeader = strings.TrimSpace(l[3:])
+		} else if strings.HasPrefix(upper, "DATE:") {
+			dateHeader = strings.TrimSpace(l[5:])
+		}
+	}
+
+	raw := strings.Join(textLines, "\n")
+	parts := strings.Split(raw, "------=_Part_")
+	var decoded string
+	for _, part := range parts {
+		if strings.Contains(part, "base64") {
+			idx := strings.Index(part, "base64")
+			content := part[idx+6:]
+			b64 := strings.Map(func(r rune) rune {
+				if r == ' ' || r == '\n' || r == '\r' || r == '\t' {
+					return -1
+				}
+				return r
+			}, content)
+			if data, decErr := base64.StdEncoding.DecodeString(b64); decErr == nil {
+				decoded += string(data) + " "
+			}
+		}
+	}
+	if decoded != "" {
+		return toHeader, dateHeader, decoded, nil
+	}
+	cleaned := strings.Map(func(r rune) rune {
+		if r == ' ' || r == '\n' || r == '\r' || r == '\t' {
+			return -1
+		}
+		return r
+	}, raw)
+	if data, decErr := base64.StdEncoding.DecodeString(cleaned); decErr == nil {
+		return toHeader, dateHeader, string(data), nil
+	}
+	return toHeader, dateHeader, raw, nil
+}
 func (c *imapClient) fetchMessageToAndBody(seq int) (toHeader string, body string, err error) {
 	if seq <= 0 {
 		return "", "", fmt.Errorf("无效的邮件序号")
@@ -409,19 +529,24 @@ func (c *imapClient) fetchMessageToAndBody(seq int) (toHeader string, body strin
 }
 
 // WaitForOTP 通过 IMAP 轮询等待 AWS 验证码
+// beforeCount 保留签名兼容，IMAP 路径改为检查最近 1 分钟内的邮件
 func WaitForOTP(acc OutlookAccount, beforeCount, timeout, interval int) (string, error) {
 	codeRegex := regexp.MustCompile(`\b(\d{6})\b`)
 	if acc.mailMode() == "graph" {
-		log.Printf("[Outlook Graph] 等待验证码, 邮箱=%s, 发送前邮件数=%d", acc.Email, beforeCount)
-		return waitForOTPGraph(acc, beforeCount, timeout, interval, codeRegex)
+		log.Printf("[Outlook Graph] 等待验证码, 邮箱=%s", acc.Email)
+		return waitForOTPGraph(acc, timeout, interval, codeRegex)
 	}
 
-	log.Printf("[Outlook IMAP] 等待验证码, 邮箱=%s, 发送前邮件数=%d", acc.Email, beforeCount)
+	log.Printf("[Outlook IMAP] 等待验证码, 邮箱=%s", acc.Email)
 
 	// 是否为别名账号（含 + 号），需过滤 To 字段
 	localPart := strings.SplitN(acc.Email, "@", 2)[0]
 	isAlias := strings.Contains(localPart, "+")
 	targetEmail := strings.ToLower(acc.Email)
+
+	// 时间窗口：只接受在发起等待之后 1 分钟内收到的邮件
+	const recentWindow = 60 * time.Second
+	startTime := time.Now()
 
 	accessToken, err := RefreshOutlookToken(acc)
 	if err != nil {
@@ -444,7 +569,6 @@ func WaitForOTP(acc OutlookAccount, beforeCount, timeout, interval int) (string,
 		if err := client.authenticate(acc.mailboxEmail(), accessToken); err != nil {
 			client.close()
 			if err == errNotConnected {
-				// mailbox 未就绪，直接重建连接，不刷 token
 				time.Sleep(time.Duration(interval) * time.Second)
 				continue
 			}
@@ -453,11 +577,10 @@ func WaitForOTP(acc OutlookAccount, beforeCount, timeout, interval int) (string,
 			continue
 		}
 
-		total, err := client.selectInbox()
+		_, err = client.selectInbox()
 		if err != nil {
 			client.close()
 			if err == errNotConnected {
-				// mailbox 未就绪，重建连接，不计入连续失败
 				time.Sleep(time.Duration(interval) * time.Second)
 				continue
 			}
@@ -472,19 +595,31 @@ func WaitForOTP(acc OutlookAccount, beforeCount, timeout, interval int) (string,
 		}
 		consecutiveSelectFail = 0
 
-		if total <= beforeCount {
+		// 用 SEARCH SINCE 获取今天的邮件序号，再用时间戳精确过滤最近 1 分钟
+		windowStart := startTime.Add(-recentWindow)
+		seqs, err := client.fetchRecentSeqs(windowStart)
+		if err != nil || len(seqs) == 0 {
 			client.close()
 			if attempt%5 == 0 {
-				log.Printf("[Outlook IMAP] [%d/%d] 暂无新邮件 (当前%d封)...", attempt, maxRetries, total)
+				log.Printf("[Outlook IMAP] [%d/%d] 暂无最近邮件...", attempt, maxRetries)
 			}
 			time.Sleep(time.Duration(interval) * time.Second)
 			continue
 		}
 
-		for i := total; i > beforeCount; i-- {
-			toHeader, body, err := client.fetchMessageToAndBody(i)
+		found := false
+		for _, seq := range seqs {
+			toHeader, dateHeader, body, err := client.fetchMessageToBodyAndDate(seq)
 			if err != nil {
 				continue
+			}
+			// 时间戳精确过滤：只接受 startTime 之后收到的邮件
+			if dateHeader != "" {
+				if t, parseErr := parseIMAPDate(dateHeader); parseErr == nil {
+					if t.Before(startTime) {
+						continue // 早于本次等待开始时间，跳过
+					}
+				}
 			}
 			// 别名账号：验证 To 头包含目标别名地址
 			if isAlias && !strings.Contains(strings.ToLower(toHeader), targetEmail) {
@@ -496,15 +631,35 @@ func WaitForOTP(acc OutlookAccount, beforeCount, timeout, interval int) (string,
 				client.close()
 				return code, nil
 			}
+			found = true // 有匹配邮件但无验证码
+			_ = found
 		}
 
 		client.close()
 		if attempt%5 == 0 {
-			log.Printf("[Outlook IMAP] [%d/%d] 新邮件中未找到验证码...", attempt, maxRetries)
+			log.Printf("[Outlook IMAP] [%d/%d] 最近邮件中未找到验证码...", attempt, maxRetries)
 		}
 		time.Sleep(time.Duration(interval) * time.Second)
 	}
 	return "", fmt.Errorf("等待验证码超时 (%ds)", timeout)
+}
+
+// parseIMAPDate 解析 IMAP Date 头（RFC 2822 格式）
+func parseIMAPDate(s string) (time.Time, error) {
+	formats := []string{
+		"Mon, 2 Jan 2006 15:04:05 -0700",
+		"Mon, 2 Jan 2006 15:04:05 -0700 (MST)",
+		"2 Jan 2006 15:04:05 -0700",
+		"Mon, 2 Jan 2006 15:04:05 MST",
+		"2 Jan 2006 15:04:05 MST",
+	}
+	s = strings.TrimSpace(s)
+	for _, f := range formats {
+		if t, err := time.Parse(f, s); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("无法解析日期: %s", s)
 }
 
 // GetInboxCount 获取收件箱当前邮件数量（带完整重连重试）
