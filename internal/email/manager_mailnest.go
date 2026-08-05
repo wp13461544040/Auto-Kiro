@@ -38,7 +38,7 @@ func SaveMailNestConfig(jsonData string) map[string]interface{} {
 	if err := os.WriteFile(getMailNestConfigPath(), []byte(jsonData), 0600); err != nil {
 		return map[string]interface{}{"error": "保存失败: " + err.Error()}
 	}
-	log.Printf("[<MailNest>] 已保存 配置" + jsonData)
+	log.Printf("[MailNest] 已保存配置: %s", jsonData)
 	return map[string]interface{}{"success": true}
 }
 

@@ -33,12 +33,14 @@ type RemailConfig struct {
 
 // RemailProvider Remail 邮箱提供商
 type RemailProvider struct {
-	config  RemailConfig
-	email   string
-	token   string // 取件令牌
-	orderID string
-	client  *http.Client
-	created bool
+	config       RemailConfig
+	email        string
+	mailboxEmail string
+	token        string
+	orderID      string
+	client       *http.Client
+	created      bool
+	createdAt    time.Time
 }
 
 // RemailCreateResponse 创建邮箱响应（下单响应）- 直接返回订单对象
@@ -151,6 +153,7 @@ func NewRemailProvider(config RemailConfig, prefix string) (*RemailProvider, err
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
+		createdAt: time.Now(),
 	}
 
 	// 创建邮箱
@@ -280,6 +283,7 @@ func (p *RemailProvider) createMailbox(prefix string) error {
 	p.email = result.DeliveryEmail
 	p.token = result.ServiceToken
 	p.orderID = result.OrderNo
+	p.mailboxEmail = result.DeliveryEmail // 非别名：收件箱就是自身
 	p.created = true
 
 	log.Printf("[Remail] 下单成功: %s (OrderNo: %s, Token: %s, Status: %s)", 
@@ -338,19 +342,22 @@ func (p *RemailProvider) WaitForCode(expectedFrom string, timeout time.Duration)
 }
 
 // checkMessages 检查邮件并提取验证码（使用取件通知 API）
+// 别名账号：用主收件箱（mailboxEmail）的 token 拉取邮件，通过 Recipient 字段过滤属于该别名的邮件
 func (p *RemailProvider) checkMessages(expectedFrom string) (string, error) {
 	apiURL := strings.TrimRight(p.config.APIURL, "/")
-	
-	// 读取邮件列表（GET /v1/pickup?email=xxx&token=xxx）
-	// 新API直接返回邮件列表，并且已经提取了验证码！
-	messagesURL := fmt.Sprintf("%s/v1/pickup?email=%s&token=%s", apiURL, p.email, p.token)
-	
+
+	// 始终用真实收件箱地址和令牌查询
+	pickupEmail := p.mailboxEmail
+	if pickupEmail == "" {
+		pickupEmail = p.email
+	}
+	messagesURL := fmt.Sprintf("%s/v1/pickup?email=%s&token=%s", apiURL, pickupEmail, p.token)
+
 	req, err := http.NewRequest("GET", messagesURL, nil)
 	if err != nil {
 		return "", err
 	}
 
-	// 所有接口都需要 Authorization header
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Bearer "+p.config.APIKey)
 	req.Header.Set("User-Agent", "KiroX/1.0")
@@ -366,7 +373,6 @@ func (p *RemailProvider) checkMessages(expectedFrom string) (string, error) {
 		return "", err
 	}
 
-	// 检查 HTTP 状态码 - 接受 200 和 201
 	if resp.StatusCode != 200 && resp.StatusCode != 201 {
 		bodyStr := string(body)
 		if len(bodyStr) > 200 {
@@ -388,29 +394,60 @@ func (p *RemailProvider) checkMessages(expectedFrom string) (string, error) {
 		return "", nil // 暂无邮件
 	}
 
+	// 判断是否为别名账号（email 含 + 号）
+	isAlias := strings.Contains(strings.SplitN(p.email, "@", 2)[0], "+")
+	targetEmail := strings.ToLower(p.email)
+
+	// 时间窗口起点：createdAt 前推 30 秒作为安全余量，避免投递延迟导致遗漏
+	windowStart := p.createdAt.Add(-30 * time.Second)
+
+	log.Printf("[Remail] 收到 %d 封邮件，当前邮箱: %s, isAlias: %v, 时间窗口起点: %s",
+		len(messagesResp.Items), p.email, isAlias, windowStart.Format("15:04:05"))
+
 	// 遍历邮件列表，查找匹配的邮件
 	for _, mail := range messagesResp.Items {
+		log.Printf("[Remail] 检查邮件 - Recipient: %q, Sender: %q, ReceivedAt: %q, VerificationCode: %q",
+			mail.Recipient, mail.Sender, mail.ReceivedAt, mail.VerificationCode)
+
+		// 时间窗口过滤：只处理 createdAt 之后到达的邮件
+		// ReceivedAt 格式通常为 RFC3339，解析失败则不过滤
+		if mail.ReceivedAt != "" {
+			if t, err := time.Parse(time.RFC3339, mail.ReceivedAt); err == nil {
+				if t.Before(windowStart) {
+					log.Printf("[Remail] 跳过（邮件早于时间窗口）: %s < %s", t.Format("15:04:05"), windowStart.Format("15:04:05"))
+					continue
+				}
+			}
+		}
+
+		// 别名过滤：Recipient 非空时必须与注册邮箱地址匹配
+		// Recipient 为空说明服务端未区分别名，退化为只靠时间窗口过滤
+		if isAlias && mail.Recipient != "" {
+			if !strings.EqualFold(mail.Recipient, targetEmail) {
+				log.Printf("[Remail] 跳过（Recipient 不匹配）: %q != %q", mail.Recipient, targetEmail)
+				continue
+			}
+		}
+
 		// 检查发件人
 		if expectedFrom != "" && !strings.Contains(strings.ToLower(mail.Sender), strings.ToLower(expectedFrom)) {
 			continue
 		}
 
-		// 优先使用API已提取的验证码
+		// 优先使用 API 已提取的验证码
 		if mail.VerificationCode != "" {
-			log.Printf("[Remail] 找到验证码（API已提取）: %s, 来自: %s", mail.VerificationCode, mail.Sender)
+			log.Printf("[Remail] 找到验证码（API已提取）: %s, 来自: %s, 收件人: %s", mail.VerificationCode, mail.Sender, mail.Recipient)
 			return mail.VerificationCode, nil
 		}
 
-		// 如果API未提取，尝试从主题和预览中提取
+		// API 未提取时，从主题和预览中提取
 		codeRegex := regexp.MustCompile(`(?i)(?:验证码|code|OTP|security code is)[：:\s]*([A-Z0-9]{6,8})`)
-		
-		// 从主题提取
+
 		if code := extractCodeFromText(mail.Subject, codeRegex); code != "" {
 			log.Printf("[Remail] 从主题提取验证码: %s", code)
 			return code, nil
 		}
 
-		// 从预览文本提取
 		if code := extractCodeFromText(mail.BodyPreview, codeRegex); code != "" {
 			log.Printf("[Remail] 从预览文本提取验证码: %s", code)
 			return code, nil

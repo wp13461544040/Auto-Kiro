@@ -17,6 +17,11 @@ type State struct {
 	success    int
 	failed     int
 	targetMode bool              // 是否为目标模式
+	// 目标模式下的跨轮次累计值（普通模式下与上面字段相同）
+	totalAccum     int
+	completedAccum int
+	successAccum   int
+	failedAccum    int
 	results    []map[string]interface{}
 	startTime  time.Time
 	logs       []string
@@ -56,12 +61,24 @@ func (s *State) GetStatus() map[string]interface{} {
 		elapsed = time.Since(s.startTime).Seconds()
 	}
 
+	// 目标模式下返回跨轮次累计值，普通模式返回当前轮次值
+	total := s.total
+	completed := s.completed
+	success := s.success
+	failed := s.failed
+	if s.targetMode {
+		total = s.totalAccum
+		completed = s.completedAccum
+		success = s.successAccum
+		failed = s.failedAccum
+	}
+
 	return map[string]interface{}{
 		"running":    s.running,
-		"total":      s.total,
-		"completed":  s.completed,
-		"success":    s.success,
-		"failed":     s.failed,
+		"total":      total,
+		"completed":  completed,
+		"success":    success,
+		"failed":     failed,
 		"elapsed":    elapsed,
 		"targetMode": s.targetMode,
 	}

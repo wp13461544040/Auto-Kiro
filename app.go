@@ -274,6 +274,8 @@ func (a *App) GetRemailOrderDetail(apiURL, apiKey, orderID string) map[string]in
 	return email.GetRemailOrderDetail(apiURL, apiKey, orderID)
 }
 
+
+
 // SelectDirectory 选择目录 (Wails Dialog)
 func (a *App) SelectDirectory() string {
 	path, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{

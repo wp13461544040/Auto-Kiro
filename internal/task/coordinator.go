@@ -146,6 +146,11 @@ func startTask(req StartTaskRequest) map[string]interface{} {
 	Manager.success = 0
 	Manager.failed = 0
 	Manager.targetMode = req.TargetMode
+	// 目标模式累计值也从 0 开始
+	Manager.totalAccum = req.Count
+	Manager.completedAccum = 0
+	Manager.successAccum = 0
+	Manager.failedAccum = 0
 	Manager.results = nil
 	Manager.startTime = time.Now()
 	Manager.mu.Unlock()
@@ -419,7 +424,7 @@ func runBatch(req StartTaskRequest, emailProvider string, outlookAccounts []emai
 			taskCfg.MailNestConfig = &cfgCopy
 			currentEmail = address
 		} else if emailProvider == "remail" {
-			// Remail 模式：从配置列表中随机选择一个配置
+			// Remail 模式：每次注册实时下单一个邮箱
 			if len(req.RemailConfigs) == 0 {
 				log.Printf("[Kiro][%d/%d] Remail 配置为空，跳过", i+1, req.Count)
 				Manager.mu.Lock()
@@ -431,7 +436,6 @@ func runBatch(req StartTaskRequest, emailProvider string, outlookAccounts []emai
 
 			config := req.RemailConfigs[rand.Intn(len(req.RemailConfigs))]
 			emailName := email.GenerateEmailName(i)
-
 			log.Printf("[Kiro][%d/%d] 创建 Remail 邮箱 (配置: %s)", i+1, req.Count, config.Name)
 
 			provider, err := email.NewRemailProvider(config, emailName)
@@ -446,8 +450,6 @@ func runBatch(req StartTaskRequest, emailProvider string, outlookAccounts []emai
 
 			taskCfg.RemailProvider = provider
 			taskCfg.UseRemail = true
-			cfgCopy := config
-			taskCfg.RemailConfig = &cfgCopy
 			address, _ := provider.GetAddress()
 			currentEmail = address
 		}
@@ -545,6 +547,27 @@ func runBatch(req StartTaskRequest, emailProvider string, outlookAccounts []emai
 				break
 			}
 
+			// SignupInit 失败：说明该邮箱在 AWS signup 流程有问题（非临时网络错误）
+			// Outlook 模式：标记当前账号并换号；临时邮箱：直接跳过不重试
+			if strings.Contains(errorMsg, "注册初始化失败") {
+				if taskConfig.UseOutlook {
+					log.Printf("[Kiro][%d/%d] %s SignupInit 失败，标记并换号", i+1, req.Count, currentEmail)
+					email.UpdateAccountStatus(currentEmail, true, false)
+					acc, ok := nextAccount()
+					if ok {
+						taskCfg.OutlookAccount = &acc
+						taskCfg.Password = core.GenPassword()
+						currentEmail = acc.Email
+						attempt = -1
+						continue retryLoop
+					}
+					log.Printf("[Kiro][%d/%d] 账号池已耗尽", i+1, req.Count)
+				} else {
+					log.Printf("[Kiro][%d/%d] SignupInit 失败，跳过当前邮箱", i+1, req.Count)
+				}
+				break
+			}
+
 			// Point of no return：Step12 已完成但整体失败 → 邮箱已消耗，不换代理重试
 			if pwSet, _ := result["passwordSet"].(bool); pwSet {
 				log.Printf("[Kiro][%d/%d] 密码已设置但验活失败，邮箱已消耗，不再重试", i+1, req.Count)
@@ -580,6 +603,13 @@ func runBatch(req StartTaskRequest, emailProvider string, outlookAccounts []emai
 		} else {
 			Manager.failed++
 		}
+		// 同步累计值（目标模式多轮汇总，普通模式与当前值相同）
+		Manager.completedAccum++
+		if success {
+			Manager.successAccum++
+		} else {
+			Manager.failedAccum++
+		}
 		completedCount := Manager.completed
 		Manager.mu.Unlock()
 
@@ -613,15 +643,14 @@ func runBatch(req StartTaskRequest, emailProvider string, outlookAccounts []emai
 
 		// 更新账号状态：
 		// - passwordSet=true：邮箱已在 AWS 侧消耗，无论成功失败都标记
-		// - passwordSet=false 且 success=false：注册流程中途失败，同样标记为失败，避免重复消耗
+		// - 邮箱已注册/SignupInit失败：已在 retryLoop 内标记，这里跳过
+		// - 其他失败（网络超时等）：不标记 registered，账号可供下次任务继续使用
 		if taskConfig.UseOutlook && currentEmail != "" {
 			passwordSet, _ := result["passwordSet"].(bool)
 			if passwordSet {
 				email.UpdateAccountStatus(currentEmail, true, success)
-			} else if !success {
-				// 未到设密码阶段就失败的账号，标记为失败以便清理
-				email.UpdateAccountStatus(currentEmail, true, false)
 			}
+			// 注意：邮箱已注册 / SignupInit 失败已在 retryLoop 内 UpdateAccountStatus，这里不重复标记
 		}
 		if success {
 			if err := data.SaveKiroSuccess(result, outDir); err != nil {
@@ -728,13 +757,44 @@ func runBatch(req StartTaskRequest, emailProvider string, outlookAccounts []emai
 			if remaining > 0 {
 				log.Printf("[Kiro] 目标模式：未达成目标 (成功 %d/%d)，等待 3 秒后自动开启新一轮...", sucCount, req.Count)
 				time.Sleep(3 * time.Second)
-				
+
 				// 检查是否在等待期间被停止
 				select {
 				case <-Manager.stopCh:
 					log.Println("[Kiro] 目标模式：任务已停止，不再重启")
 					return
 				default:
+				}
+
+				// 重新从缓存加载未注册的 Outlook 账号（避免复用已标记账号）
+				var nextRoundAccounts []email.OutlookAccount
+				if emailProvider == "outlook" {
+					storedAccounts := storage.GetAccountsCached()
+					for _, acc := range storedAccounts {
+						registered, _ := acc["registered"].(bool)
+						if !registered {
+							emailAddr, _ := acc["email"].(string)
+							password, _ := acc["password"].(string)
+							clientID, _ := acc["clientId"].(string)
+							refreshToken, _ := acc["refreshToken"].(string)
+							mode, _ := acc["mode"].(string)
+							mailboxEmail, _ := acc["mailboxEmail"].(string)
+							nextRoundAccounts = append(nextRoundAccounts, email.OutlookAccount{
+								Email:        emailAddr,
+								Password:     password,
+								ClientID:     clientID,
+								RefreshToken: refreshToken,
+								Mode:         mode,
+								MailboxEmail: mailboxEmail,
+							})
+						}
+					}
+					nextRoundAccounts = interleaveOutlookAccounts(nextRoundAccounts)
+					if len(nextRoundAccounts) == 0 {
+						log.Println("[Kiro] 目标模式：没有剩余可用 Outlook 账号，任务结束")
+						return
+					}
+					log.Printf("[Kiro] 目标模式：新一轮可用账号 %d 个", len(nextRoundAccounts))
 				}
 
 				// 重置状态，准备新一轮
@@ -750,7 +810,7 @@ func runBatch(req StartTaskRequest, emailProvider string, outlookAccounts []emai
 				newReq := req
 				newReq.Count = remaining
 				log.Printf("[Kiro] 目标模式：开启新一轮，剩余目标: %d", remaining)
-				runBatch(newReq, emailProvider, outlookAccounts)
+				runBatch(newReq, emailProvider, nextRoundAccounts)
 			}
 		}
 	}

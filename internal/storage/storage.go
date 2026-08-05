@@ -363,6 +363,7 @@ var (
 	_accountsLoaded bool
 	_accountsDirty  bool
 	_flushTimer     *time.Timer
+	_flushTimerMu   sync.Mutex // 专门保护 _flushTimer
 )
 
 func loadAccountsCache() {
@@ -378,16 +379,33 @@ func loadAccountsCache() {
 	_accountsLoaded = true
 }
 
-// GetAccountsCached 获取账号列表（从内存缓存）
+// GetAccountsCached 获取账号列表（从内存缓存，深拷贝保证并发安全）
 func GetAccountsCached() []map[string]interface{} {
 	_accountsMu.Lock()
 	if !_accountsLoaded {
 		loadAccountsCache()
 	}
-	result := make([]map[string]interface{}, len(_accountsCache))
-	copy(result, _accountsCache)
+	// 深拷贝：在锁内序列化再反序列化，避免调用方持有 map 指针与缓存共享
+	b, err := json.Marshal(_accountsCache)
 	_accountsMu.Unlock()
+	if err != nil {
+		return []map[string]interface{}{}
+	}
+	var result []map[string]interface{}
+	if err := json.Unmarshal(b, &result); err != nil {
+		return []map[string]interface{}{}
+	}
 	return result
+}
+
+// GetAccountsCount 返回当前缓存中的账号数量（轻量查询，不深拷贝）
+func GetAccountsCount() int {
+	_accountsMu.Lock()
+	defer _accountsMu.Unlock()
+	if !_accountsLoaded {
+		loadAccountsCache()
+	}
+	return len(_accountsCache)
 }
 
 // SetAccountsCached 替换账号列表并触发异步刷盘
@@ -413,36 +431,58 @@ func ModifyAccountsCached(fn func([]map[string]interface{}) []map[string]interfa
 }
 
 func scheduleFlush() {
+	// _accountsMu 已在调用方持有，这里只用 _flushTimerMu 保护 timer 变量
+	_flushTimerMu.Lock()
 	if _flushTimer != nil {
 		_flushTimer.Stop()
 	}
 	_flushTimer = time.AfterFunc(500*time.Millisecond, flushAccountsToDisk)
+	_flushTimerMu.Unlock()
 }
 
 func flushAccountsToDisk() {
-	_accountsMu.RLock()
+	_accountsMu.Lock()
 	if !_accountsDirty {
-		_accountsMu.RUnlock()
+		_accountsMu.Unlock()
 		return
 	}
-	data := make([]map[string]interface{}, len(_accountsCache))
-	copy(data, _accountsCache)
-	_accountsMu.RUnlock()
-
-	err := SaveJSON(GetAccountsPath(), data)
-
-	_accountsMu.Lock()
+	// 在锁内完成序列化并立即清除 dirty 标记
+	// 若序列化后、写文件前有新的修改，scheduleFlush 会重置 dirty=true 并重新安排一次 flush
+	b, err := json.Marshal(_accountsCache)
 	if err == nil {
 		_accountsDirty = false
 	}
 	_accountsMu.Unlock()
+
+	if err != nil {
+		return
+	}
+	// 锁外写文件（I/O 不占锁）
+	path := GetAccountsPath()
+	os.MkdirAll(filepath.Dir(path), 0755)
+	tmpFile := path + ".tmp"
+	if werr := os.WriteFile(tmpFile, b, 0600); werr != nil {
+		// 写失败：重置 dirty，下次会再次触发
+		_accountsMu.Lock()
+		_accountsDirty = true
+		_accountsMu.Unlock()
+		return
+	}
+	if werr := os.Rename(tmpFile, path); werr != nil {
+		_accountsMu.Lock()
+		_accountsDirty = true
+		_accountsMu.Unlock()
+	}
 }
 
 // FlushAccountsSync 同步刷盘（程序退出前调用）
 func FlushAccountsSync() {
+	_flushTimerMu.Lock()
 	if _flushTimer != nil {
 		_flushTimer.Stop()
+		_flushTimer = nil
 	}
+	_flushTimerMu.Unlock()
 	flushAccountsToDisk()
 }
 

@@ -2,6 +2,7 @@
 
 import (
 	"fmt"
+	"log"
 	"math/rand"
 	"os"
 	"strings"
@@ -80,12 +81,13 @@ func GetOutlookAccounts() []map[string]interface{} {
 }
 
 // UpdateAccountStatus 更新账号注册状态（纯内存操作，异步刷盘）
-func UpdateAccountStatus(email string, registered bool, success bool) map[string]interface{} {
+func UpdateAccountStatus(emailAddr string, registered bool, success bool) map[string]interface{} {
 	found := false
 	now := time.Now().Format("2006-01-02 15:04:05")
+	emailLower := strings.ToLower(emailAddr)
 	storage.ModifyAccountsCached(func(accounts []map[string]interface{}) []map[string]interface{} {
 		for i, acc := range accounts {
-			if acc["email"] == email {
+			if stored, _ := acc["email"].(string); strings.ToLower(stored) == emailLower {
 				accounts[i]["registered"] = registered
 				accounts[i]["success"] = success
 				accounts[i]["registeredAt"] = now
@@ -96,6 +98,7 @@ func UpdateAccountStatus(email string, registered bool, success bool) map[string
 		return accounts
 	})
 	if !found {
+		log.Printf("[账号] UpdateAccountStatus: 未找到邮箱 %s（缓存共 %d 条）", emailAddr, storage.GetAccountsCount())
 		return map[string]interface{}{"error": "账号不存在"}
 	}
 	return map[string]interface{}{"status": "updated"}
