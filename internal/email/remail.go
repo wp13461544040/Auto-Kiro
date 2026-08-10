@@ -341,6 +341,71 @@ func (p *RemailProvider) WaitForCode(expectedFrom string, timeout time.Duration)
 	}
 }
 
+// refreshToken 刷新订单信息和token
+func (p *RemailProvider) refreshToken() error {
+	if p.orderID == "" {
+		return fmt.Errorf("订单ID为空")
+	}
+
+	apiURL := strings.TrimRight(p.config.APIURL, "/")
+	orderURL := fmt.Sprintf("%s/v1/open/orders/%s", apiURL, p.orderID)
+
+	req, err := http.NewRequest("GET", orderURL, nil)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Bearer "+p.config.APIKey)
+	req.Header.Set("User-Agent", "KiroX/1.0")
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	if resp.StatusCode != 200 {
+		bodyStr := string(body)
+		if len(bodyStr) > 200 {
+			bodyStr = bodyStr[:200] + "..."
+		}
+		return fmt.Errorf("HTTP %d: %s, 响应: %s", resp.StatusCode, resp.Status, bodyStr)
+	}
+
+	var result RemailOrderDetailResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return fmt.Errorf("解析订单详情失败: %w", err)
+	}
+
+	// 检查订单状态
+	if result.Status != "active" && result.Status != "pending_payment" {
+		switch result.Status {
+		case "refunded":
+			return fmt.Errorf("订单已退款，邮箱已失效")
+		case "expired":
+			return fmt.Errorf("订单已过期，邮箱已失效")
+		case "cancelled":
+			return fmt.Errorf("订单已取消，邮箱已失效")
+		default:
+			return fmt.Errorf("订单状态异常: %s", result.Status)
+		}
+	}
+
+	// 更新token
+	if result.ServiceToken != "" {
+		p.token = result.ServiceToken
+		log.Printf("[Remail] Token已刷新: %s, 订单状态: %s", p.token, result.Status)
+	}
+
+	return nil
+}
+
 // checkMessages 检查邮件并提取验证码（使用取件通知 API）
 // 别名账号：用主收件箱（mailboxEmail）的 token 拉取邮件，通过 Recipient 字段过滤属于该别名的邮件
 func (p *RemailProvider) checkMessages(expectedFrom string) (string, error) {
@@ -371,6 +436,35 @@ func (p *RemailProvider) checkMessages(expectedFrom string) (string, error) {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
+	}
+
+	// 如果是401错误,尝试刷新token
+	if resp.StatusCode == 401 {
+		log.Printf("[Remail] Token失效(401),尝试刷新...")
+		if refreshErr := p.refreshToken(); refreshErr != nil {
+			return "", fmt.Errorf("Token失效且刷新失败: %w", refreshErr)
+		}
+		
+		// 用新token重试
+		messagesURL = fmt.Sprintf("%s/v1/pickup?email=%s&token=%s", apiURL, pickupEmail, p.token)
+		req, err = http.NewRequest("GET", messagesURL, nil)
+		if err != nil {
+			return "", err
+		}
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Authorization", "Bearer "+p.config.APIKey)
+		req.Header.Set("User-Agent", "KiroX/1.0")
+		
+		resp, err = p.client.Do(req)
+		if err != nil {
+			return "", err
+		}
+		defer resp.Body.Close()
+		
+		body, err = io.ReadAll(resp.Body)
+		if err != nil {
+			return "", err
+		}
 	}
 
 	if resp.StatusCode != 200 && resp.StatusCode != 201 {
