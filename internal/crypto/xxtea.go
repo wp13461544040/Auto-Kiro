@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	fhttp "github.com/bogdanfinn/fhttp"
 	httputil "github.com/wp13461544040/Auto-Kiro/internal/http"
@@ -24,19 +25,27 @@ const (
 var (
 	fallbackKey = [4]uint32{1888420705, 2576816180, 2347232058, 874813317}
 
-	cacheMu          sync.Mutex
-	cachedKey        *[4]uint32
-	cachedVersion    string
-	cachedIdentifier string
+	cacheMu           sync.Mutex
+	cachedKey         *[4]uint32
+	cachedVersion     string
+	cachedIdentifier  string
+	lastKeyUpdateTime time.Time                   // 上次密钥更新时间
+	keyUpdateInterval = 1 * time.Hour             // 密钥更新间隔（1小时）
 )
 
 // RefreshAppJSConfig 从 app.js 刷新 XXTEA 密钥和 TES 版本
 func RefreshAppJSConfig(proxy string) {
 	cacheMu.Lock()
 	defer cacheMu.Unlock()
-	if cachedKey != nil {
+	
+	// 如果已有缓存且未过期，直接返回
+	if cachedKey != nil && time.Since(lastKeyUpdateTime) < keyUpdateInterval {
 		return
 	}
+	
+	// 首次加载或密钥过期时才打印
+	needsRefresh := cachedKey == nil
+	
 	js := fetchAppJS(proxy)
 	if js != "" {
 		key, ident, ver := extractFromAppJS(js)
@@ -49,9 +58,18 @@ func RefreshAppJSConfig(proxy string) {
 		if ver != "" {
 			cachedVersion = ver
 		}
+		lastKeyUpdateTime = time.Now()
+		
+		// 只在首次加载或刷新成功时打印
+		if needsRefresh {
+			log.Printf("[加密] 密钥已更新 (TES %s)", ver)
+		}
+	} else if needsRefresh {
+		log.Println("[加密] 使用备用密钥")
 	}
+	
+	// 如果下载失败且没有缓存，使用 fallback
 	if cachedKey == nil {
-		log.Println("[xxtea] 使用 fallback 密钥")
 		k := fallbackKey
 		cachedKey = &k
 	}
@@ -160,7 +178,6 @@ func fetchAppJS(proxy string) string {
 	})
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("[xxtea] 下载 app.js 失败: %v", err)
 		return ""
 	}
 	defer resp.Body.Close()

@@ -64,6 +64,9 @@ type Registrar struct {
 
 // NewRegistrar 创建注册器
 func NewRegistrar(cfg *Config) *Registrar {
+	// 刷新 XXTEA 密钥（从 AWS app.js 获取最新密钥，有1小时缓存）
+	crypto.RefreshAppJSConfig(cfg.Proxy)
+	
 	// 按代理绑定稳定指纹：同一出口 IP 下短时间内重复使用同一硬件身份，
 	// 只有 lsubid 前缀 / webpackHash 等真实浏览器会话间也会变的字段每次刷新。
 	identity := browser.IdentityForProxy(cfg.Proxy)
@@ -116,7 +119,6 @@ func (r *Registrar) DoPost(url string, payload interface{}, headers map[string]s
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
-			log.Printf("[HTTP] POST 重试 (%d/%d), 等待退避...", attempt, maxRetries)
 			time.Sleep(retryBackoff(attempt))
 		}
 
@@ -151,7 +153,6 @@ func (r *Registrar) DoGet(url string, headers map[string]string) ([]byte, int, m
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
-			log.Printf("[HTTP] GET 重试 (%d/%d), 等待退避...", attempt, maxRetries)
 			time.Sleep(retryBackoff(attempt))
 		}
 
@@ -186,7 +187,6 @@ func (r *Registrar) DoPostRaw(url string, payload interface{}, headers map[strin
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
-			log.Printf("[HTTP] POST 重试 (%d/%d), 等待退避...", attempt, maxRetries)
 			time.Sleep(retryBackoff(attempt))
 		}
 
@@ -247,12 +247,12 @@ func (r *Registrar) GenFPWithTime(pageType, eventType string, timeOnPage, emailL
 	}
 
 	fpJSON := browser.GenerateFingerprintJSON(r.Identity, loc, ref, r.FPCtx, pageType, eventType, timeOnPage, emailLen, emailAddr)
-	return crypto.EncryptFingerprint(fpJSON)
+	// 优先使用 WAF 远程加密，失败则降级到本地 XXTEA
+	return crypto.EncryptFingerprintSmart(fpJSON)
 }
 
 // Step1OIDC OIDC 注册
 func (r *Registrar) Step1OIDC() error {
-	log.Println("[1] OIDC 注册")
 	body, _, err := r.DoPost(r.Cfg.OIDCBase+"/client/register", map[string]interface{}{
 		"clientName": "Amazon Q Developer for command line",
 		"clientType": "public",
@@ -273,7 +273,6 @@ func (r *Registrar) Step1OIDC() error {
 
 // Step2Device 设备授权
 func (r *Registrar) Step2Device() error {
-	log.Println("[2] 设备授权")
 	body, _, err := r.DoPost(r.Cfg.OIDCBase+"/device_authorization", map[string]interface{}{
 		"clientId": r.ClientID, "clientSecret": r.ClientSecret,
 		"startUrl": r.Cfg.StartURL,
@@ -285,47 +284,40 @@ func (r *Registrar) Step2Device() error {
 	json.Unmarshal(body, &data)
 	r.DeviceCode, _ = data["deviceCode"].(string)
 	r.UserCode, _ = data["userCode"].(string)
-	log.Printf("user_code=%s", r.UserCode)
 	return nil
 }
 
 // Step3Email 获取邮箱 (临时邮箱、Outlook)
 func (r *Registrar) Step3Email() error {
 	if r.Cfg.UseOutlook && r.Cfg.OutlookAccount != nil {
-		log.Println("[3] 使用 Outlook 邮箱")
 		r.Email = r.Cfg.OutlookAccount.Email
-		log.Printf("email=%s", r.Email)
+		log.Printf("[邮箱] %s", r.Email)
 		return nil
 	}
 	if r.Cfg.UseCloudMail && r.Cfg.CloudMailProvider != nil {
-		log.Println("[3] 使用 Cloud-Mail 邮箱")
 		r.EmailSvc = email.NewCloudMailService(r.Cfg.CloudMailProvider)
 		r.Email = r.EmailSvc.GetAddress()
-		log.Printf("email=%s", r.Email)
+		log.Printf("[邮箱] %s", r.Email)
 		return nil
 	}
 	if r.Cfg.UseMoeMail && r.Cfg.MoeMailProvider != nil {
-		log.Println("[3] 使用 MoeMail 邮箱（已创建）")
 		r.EmailSvc = email.NewMoEmailServiceFromProvider(r.Cfg.MoeMailProvider)
 		r.Email = r.EmailSvc.GetAddress()
-		log.Printf("email=%s", r.Email)
+		log.Printf("[邮箱] %s", r.Email)
 		return nil
 	}
 	if r.Cfg.UseMailNest && r.Cfg.MailNestProvider != nil {
-		log.Println("[3] 使用 MailNest 邮箱")
 		r.EmailSvc = email.NeMailNestServiceFromProvider(r.Cfg.MailNestProvider)
 		r.Email = r.EmailSvc.GetAddress()
-		log.Printf("email=%s", r.Email)
+		log.Printf("[邮箱] %s", r.Email)
 		return nil
 	}
 	if r.Cfg.UseRemail && r.Cfg.RemailProvider != nil {
-		log.Println("[3] 使用 Remail 邮箱")
 		r.EmailSvc = email.NewRemailServiceFromProvider(r.Cfg.RemailProvider)
 		r.Email = r.EmailSvc.GetAddress()
-		log.Printf("email=%s", r.Email)
+		log.Printf("[邮箱] %s", r.Email)
 		return nil
 	}
-	log.Println("[3] 创建临时邮箱")
 	// 如果未配置 MoEmail URL，从已保存的 MoeMail 配置中自动读取
 	baseURL := r.Cfg.MoEmailBaseURL
 	apiKey := r.Cfg.MoEmailAPIKey
@@ -334,18 +326,16 @@ func (r *Registrar) Step3Email() error {
 		if len(configs) > 0 {
 			baseURL = configs[0].URL
 			apiKey = configs[0].APIKey
-			log.Printf("[MoEmail] 自动使用已保存配置: %s", configs[0].Name)
 		}
 	}
 	r.EmailSvc = email.NewMoEmailService(baseURL, apiKey)
 	r.Email = r.EmailSvc.Create()
-	log.Printf("email=%s", r.Email)
+	log.Printf("[邮箱] %s", r.Email)
 	return nil
 }
 
 // Step4Portal Portal 初始化
 func (r *Registrar) Step4Portal() error {
-	log.Println("[4] Portal 初始化")
 	r.Cookies["awsccc"] = httputil.Awsccc()
 
 	redirect := fmt.Sprintf("%s/start/#/device?user_code=%s", r.Cfg.ViewBase, r.UserCode)
@@ -386,7 +376,6 @@ func (r *Registrar) Step4Portal() error {
 
 // Step5WorkflowInit 工作流初始化
 func (r *Registrar) Step5WorkflowInit() error {
-	log.Println("[5] 工作流初始化")
 	api := fmt.Sprintf("%s/platform/%s/api/execute", r.Cfg.SigninBase, r.Cfg.DirectoryID)
 	ref := fmt.Sprintf("%s/platform/%s/login?workflowStateHandle=%s",
 		r.Cfg.SigninBase, r.Cfg.DirectoryID, r.WorkflowHandle)

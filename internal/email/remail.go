@@ -18,17 +18,18 @@ import (
 
 // RemailConfig Remail 配置
 type RemailConfig struct {
-	Name       string `json:"name"`       // 配置名称
-	APIKey     string `json:"apiKey"`     // API Key
-	APIURL     string `json:"apiUrl"`     // API 地址
-	Project    string `json:"project"`    // 项目名称（用于显示，实际使用 ProjectID）
-	ProjectID  int    `json:"projectId"`  // 项目ID
-	Product    string `json:"product"`    // 产品类型（microsoft/domain，用于显示）
-	ProductID  int    `json:"productId"`  // 产品ID
-	Mode       string `json:"mode"`       // 服务模式：package（接包/code）或 purchase（购买）
-	Suffix     string `json:"suffix"`     // 邮箱后缀（如 com.cn）
-	Timeout    int    `json:"timeout"`    // 超时时间（秒）
-	PollPeriod int    `json:"pollPeriod"` // 轮询周期（秒）
+	Name        string `json:"name"`        // 配置名称
+	APIKey      string `json:"apiKey"`      // API Key
+	APIURL      string `json:"apiUrl"`      // API 地址
+	Project     string `json:"project"`     // 项目名称（用于显示，实际使用 ProjectID）
+	ProjectID   int    `json:"projectId"`   // 项目ID
+	Product     string `json:"product"`     // 产品类型（microsoft/domain，用于显示）
+	ProductType string `json:"productType"` // 产品类型标识（新API使用type字段）
+	ProductID   int    `json:"productId"`   // 产品ID（兼容旧版本，新API不使用）
+	Mode        string `json:"mode"`        // 服务模式：package（接包/code）或 purchase（购买）
+	Suffix      string `json:"suffix"`      // 邮箱后缀（如 com.cn）
+	Timeout     int    `json:"timeout"`     // 超时时间（秒）
+	PollPeriod  int    `json:"pollPeriod"`  // 轮询周期（秒）
 }
 
 // RemailProvider Remail 邮箱提供商
@@ -170,22 +171,16 @@ func (p *RemailProvider) createMailbox(prefix string) error {
 	apiURL := strings.TrimRight(p.config.APIURL, "/")
 	
 	// 验证必需参数
-	log.Printf("[Remail] 配置信息 - ProjectID: %d, ProductID: %d, Project: %s, Product: %s", 
-		p.config.ProjectID, p.config.ProductID, p.config.Project, p.config.Product)
+	log.Printf("[Remail] 配置信息 - ProjectID: %d, ProductType: %s, Suffix: %s, Project: %s", 
+		p.config.ProjectID, p.config.ProductType, p.config.Suffix, p.config.Project)
 	
 	if p.config.ProjectID == 0 {
 		return fmt.Errorf("项目ID不能为空")
 	}
-	if p.config.ProductID == 0 {
-		return fmt.Errorf("产品ID不能为空")
-	}
 	
-	// 构建请求体 - 统一使用固定格式
-	// API 只接受这三个字段：projectId, productId, emailSuffix
-	// emailPrefix 由 API 自动生成，不需要客户端提供
+	// 构建请求体 - 新版API只需要 projectId 和 emailSuffix
 	reqBody := map[string]interface{}{
 		"projectId":   p.config.ProjectID,
-		"productId":   p.config.ProductID,
 		"emailSuffix": p.config.Suffix, // 使用配置的后缀，如果为空就是 ""
 	}
 	
@@ -224,8 +219,8 @@ func (p *RemailProvider) createMailbox(prefix string) error {
 	} else {
 		q.Add("serviceMode", "code") // package 模式对应 code
 	}
-	// 统一使用 private_first 策略
-	q.Add("supply", "private_first")
+	// 使用 public_only 策略(新API默认)
+	q.Add("supply", "public_only")
 	req.URL.RawQuery = q.Encode()
 
 	log.Printf("[Remail] 下单请求 URL: %s", req.URL.String())
@@ -656,8 +651,10 @@ func GetRemailProjects(apiURL, apiKey string) map[string]interface{} {
 		},
 	}
 
-	// 获取项目列表
-	fullURL := apiURL + "/v1/open/projects?offset=0&limit=100"
+	// 获取项目列表 - 新增 accessType 和 productType 参数
+	// accessType: public(公共项目) | private(私有项目)
+	// productType: microsoft(微软邮箱) | domain(自定义域名)
+	fullURL := apiURL + "/v1/open/projects?offset=0&limit=40&accessType=public&productType=microsoft"
 	req, err := http.NewRequest("GET", fullURL, nil)
 	if err != nil {
 		return map[string]interface{}{"success": false, "error": "请求失败: " + err.Error()}
@@ -739,6 +736,9 @@ func GetRemailProjectDetail(apiURL, apiKey string, projectID int) map[string]int
 	if apiURL == "" {
 		apiURL = "https://remail.aishop6.com"
 	}
+	// 去除末尾的斜杠
+	apiURL = strings.TrimRight(apiURL, "/")
+	
 	if apiKey == "" {
 		return map[string]interface{}{"success": false, "error": "API Key 不能为空"}
 	}

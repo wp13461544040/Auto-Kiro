@@ -2,20 +2,23 @@
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"log"
 	"os"
-	"github.com/wp13461544040/Auto-Kiro/internal/browser"
-	"github.com/wp13461544040/Auto-Kiro/internal/data"
-	"github.com/wp13461544040/Auto-Kiro/internal/email"
-	"github.com/wp13461544040/Auto-Kiro/internal/proxy"
-	"github.com/wp13461544040/Auto-Kiro/internal/subscription"
+	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"github.com/wp13461544040/Auto-Kiro/internal/browser"
+	"github.com/wp13461544040/Auto-Kiro/internal/crypto"
+	"github.com/wp13461544040/Auto-Kiro/internal/data"
+	"github.com/wp13461544040/Auto-Kiro/internal/email"
+	"github.com/wp13461544040/Auto-Kiro/internal/proxy"
 	"github.com/wp13461544040/Auto-Kiro/internal/storage"
+	"github.com/wp13461544040/Auto-Kiro/internal/subscription"
 	"github.com/wp13461544040/Auto-Kiro/internal/task"
 	"github.com/wp13461544040/Auto-Kiro/internal/updater"
-	"time"
 )
 
 type App struct {
@@ -36,6 +39,17 @@ func (a *App) startup(ctx context.Context) {
 
 	// 初始化代理池（按数据目录持久化）
 	proxy.InitPool(storage.GetDataDir())
+
+	// 加载 WAF 配置
+	wafConfigJSON := storage.GetWAFConfig()
+	if wafConfigJSON != "" {
+		var wafCfg crypto.WAFConfig
+		if err := json.Unmarshal([]byte(wafConfigJSON), &wafCfg); err == nil {
+			crypto.LoadWAFConfig(&wafCfg)
+		} else {
+			log.Printf("[WAF] 加载配置失败: %v", err)
+		}
+	}
 
 	// 居中显示窗口
 	go func() {
@@ -229,11 +243,6 @@ func (a *App) ImportOutlookFile(filePath string) map[string]interface{} {
 	return email.ImportOutlookFile(filePath)
 }
 
-// SplitOutlookAccount 将单个 Outlook 账号分裂为最多 50 个别名账号
-func (a *App) SplitOutlookAccount(sourceEmail string, count int) map[string]interface{} {
-	return email.SplitOutlookAccount(sourceEmail, count)
-}
-
 // ---- MailNest ----
 
 func (a *App) TestMailNestConnection(configJSON string) map[string]interface{} {
@@ -396,6 +405,71 @@ func (a *App) SetLanguage(lang string) map[string]interface{} {
 		return map[string]interface{}{"error": err.Error()}
 	}
 	return map[string]interface{}{"success": true, "language": lang}
+}
+
+// GetWAFConfig 获取 WAF 指纹加密配置
+func (a *App) GetWAFConfig() string {
+	return storage.GetWAFConfig()
+}
+
+// SetWAFConfig 保存 WAF 配置(JSON 格式)
+func (a *App) SetWAFConfig(configJSON string) map[string]interface{} {
+	if err := storage.SetWAFConfig(configJSON); err != nil {
+		return map[string]interface{}{"error": err.Error()}
+	}
+	
+	// 立即更新内存中的配置
+	var cfg crypto.WAFConfig
+	if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
+		log.Printf("[WAF] 配置更新失败: %v", err)
+		return map[string]interface{}{"error": "配置更新失败: " + err.Error()}
+	}
+	crypto.LoadWAFConfig(&cfg)
+	
+	return map[string]interface{}{"success": true}
+}
+
+// TestWAFConnection 测试 WAF 服务连接
+func (a *App) TestWAFConnection(configJSON string) map[string]interface{} {
+	var cfg crypto.WAFConfig
+	if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
+		return map[string]interface{}{"error": "配置格式错误: " + err.Error()}
+	}
+
+	// 临时启用配置进行测试
+	crypto.LoadWAFConfig(&cfg)
+	defer func() {
+		// 恢复原配置
+		oldConfig := storage.GetWAFConfig()
+		if oldConfig != "" {
+			var old crypto.WAFConfig
+			json.Unmarshal([]byte(oldConfig), &old)
+			crypto.LoadWAFConfig(&old)
+		} else {
+			crypto.LoadWAFConfig(nil)
+		}
+	}()
+
+	// 生成测试指纹
+	testFingerprint := `{"test":"waf_connection","timestamp":` + fmt.Sprintf("%d", time.Now().Unix()) + `}`
+	
+	encrypted, err := crypto.EncryptFingerprintWithWAF(testFingerprint)
+	if err != nil {
+		return map[string]interface{}{"error": err.Error()}
+	}
+
+	return map[string]interface{}{
+		"success":   true,
+		"encrypted": encrypted[:min(50, len(encrypted))] + "...", // 只返回前50个字符
+		"length":    len(encrypted),
+	}
+}
+
+// ResetWAFConfig 重置 WAF 配置
+func (a *App) ResetWAFConfig() map[string]interface{} {
+	storage.ResetWAFConfig()
+	crypto.LoadWAFConfig(nil)
+	return map[string]interface{}{"success": true}
 }
 
 // GetOSLanguage 返回操作系统语言代码 "zh"/"en"/"ja"，用于首次启动自动选语言

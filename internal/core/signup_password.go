@@ -137,10 +137,92 @@ func (r *Registrar) Step12SetPassword() error {
 	httputil.SaveCookies(r.Cookies, respH)
 
 	json.Unmarshal(body, &data)
+	
+	// 检查是否需要人机验证
+	if captchaResp, ok := data["captchaResponse"].(map[string]interface{}); ok {
+		captchaToken, _ := captchaResp["captchaToken"].(string)
+		if captchaToken != "" {
+			log.Printf("[12] 检测到需要人机验证")
+			// AWS captcha需要解析token中的redemptionToken
+			var tokenData map[string]interface{}
+			if err := json.Unmarshal([]byte(captchaToken), &tokenData); err == nil {
+				if redemptionToken, ok := tokenData["redemptionToken"].(string); ok && redemptionToken != "" {
+					log.Printf("[12] 使用 redemptionToken 重试")
+					// 等待1秒再重试,避免请求太快
+					time.Sleep(1 * time.Second)
+					return r.retrySetPasswordWithCaptcha(encrypted, fp, rid, ref, redemptionToken)
+				}
+			}
+			// 如果解析失败,直接用原token重试
+			log.Printf("[12] captchaToken 解析失败,使用原token重试")
+			time.Sleep(1 * time.Second)
+			return r.retrySetPasswordWithCaptcha(encrypted, fp, rid, ref, captchaToken)
+		}
+	}
+	
 	redir, _ := data["redirect"].(map[string]interface{})
 	rurl, _ := redir["url"].(string)
 	if rurl == "" {
 		return fmt.Errorf("密码设置未返回 redirect: %s", string(body))
+	}
+
+	wh := httputil.ExtractParam(rurl, "workflowStateHandle")
+	st := httputil.ExtractParam(rurl, "state")
+	rh := httputil.ExtractParam(rurl, "workflowResultHandle")
+	return r.completeSignup(wh, st, rh)
+}
+
+// retrySetPasswordWithCaptcha 重试设置密码(附带人机验证token)
+func (r *Registrar) retrySetPasswordWithCaptcha(encrypted, fp, rid, ref, captchaToken string) error {
+	log.Println("[12.1] 重试设置密码(附带人机验证)")
+	api := fmt.Sprintf("%s/platform/%s/signup/api/execute", r.Cfg.SigninBase, r.Cfg.DirectoryID)
+	
+	fp = r.GenFP("signup", "PageSubmit", 0, "")
+	rid = NewUUID()
+	h := r.BuildHeaders(ref, r.Cfg.SigninBase)
+	h["x-amzn-requestid"] = rid
+	h["x-amz-date"] = GmtDate()
+	h["priority"] = "u=1, i"
+
+	body, _, respH, err := r.DoPostRaw(api, map[string]interface{}{
+		"stepId":              "get-new-password-for-password-creation",
+		"workflowStateHandle": r.WorkflowHandle,
+		"actionId":            "SUBMIT",
+		"inputs": []interface{}{
+			map[string]interface{}{
+				"input_type":            "PasswordRequestInput",
+				"password":              encrypted,
+				"successfullyEncrypted": "SUCCESSFUL",
+			},
+			map[string]string{"input_type": "UserRequestInput", "username": r.Email},
+			map[string]string{"input_type": "FingerPrintRequestInput", "fingerPrint": fp},
+			map[string]string{
+				"input_type":      "CaptchaResponseInput",
+				"redemptionToken": captchaToken,
+			},
+		},
+		"visitorId": r.VisitorID, "requestId": rid,
+	}, h)
+	if err != nil {
+		return err
+	}
+	httputil.SaveCookies(r.Cookies, respH)
+
+	var data map[string]interface{}
+	json.Unmarshal(body, &data)
+	
+	// 再次检查是否还需要captcha(可能需要多次)
+	if captchaResp, ok := data["captchaResponse"].(map[string]interface{}); ok {
+		if newToken, ok := captchaResp["captchaToken"].(string); ok && newToken != "" {
+			log.Printf("[12.1] 仍需要验证,放弃重试: %s", string(body))
+			return fmt.Errorf("人机验证失败,需要手动处理")
+		}
+	}
+	
+	redir, _ := data["redirect"].(map[string]interface{})
+	rurl, _ := redir["url"].(string)
+	if rurl == "" {
+		return fmt.Errorf("密码设置(附带captcha)未返回 redirect: %s", string(body))
 	}
 
 	wh := httputil.ExtractParam(rurl, "workflowStateHandle")

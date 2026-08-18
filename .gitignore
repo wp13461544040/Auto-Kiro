@@ -14,6 +14,7 @@ build/darwin/iconfile.icns
 # Frontend build artifacts
 frontend/dist/
 frontend/node_modules/
+node_modules/
 package-lock.json
 
 # Go

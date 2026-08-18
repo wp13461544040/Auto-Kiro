@@ -218,6 +218,17 @@ async function resetResultOutputDir() {
   }
 }
 
+// 代理配置折叠/展开
+function toggleProxySection() {
+  var content = document.getElementById('proxy-config-content');
+  var icon = document.getElementById('proxy-collapse-icon');
+  if (!content || !icon) return;
+  
+  var isHidden = content.style.display === 'none';
+  content.style.display = isHidden ? 'flex' : 'none';
+  icon.style.transform = isHidden ? 'rotate(180deg)' : 'rotate(0deg)';
+}
+
 // 代理设置
 async function loadProxy() {
   try {

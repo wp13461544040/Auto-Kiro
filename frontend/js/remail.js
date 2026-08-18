@@ -118,8 +118,12 @@ function showAddRemailModal() {
   document.getElementById('remail-form-apiurl').value = 'https://remail.aishop6.com';
   document.getElementById('remail-form-project').innerHTML = '<option value="">请先刷新加载项目列表</option>';
   document.getElementById('remail-form-product').innerHTML = '<option value="">请先选择项目</option>';
+  var suffixSelect = document.getElementById('remail-form-suffix-select');
+  if (suffixSelect) {
+    suffixSelect.innerHTML = '<option value="">自动分配</option>';
+    suffixSelect.disabled = true;
+  }
   document.getElementById('remail-form-mode').value = 'package';
-  document.getElementById('remail-form-suffix').value = '';
   document.getElementById('remail-form-timeout').value = '300';
   document.getElementById('remail-form-poll').value = '3';
   document.getElementById('remail-edit-index').value = '-1';
@@ -136,8 +140,11 @@ function editRemailConfig(index) {
   document.getElementById('remail-form-apiurl').value = cfg.apiUrl || 'https://remail.aishop6.com';
   document.getElementById('remail-form-project').value = cfg.project || '';
   document.getElementById('remail-form-product').value = cfg.product || '';
+  var suffixSelect = document.getElementById('remail-form-suffix-select');
+  if (suffixSelect) {
+    suffixSelect.value = cfg.suffix || '';
+  }
   document.getElementById('remail-form-mode').value = cfg.mode || 'package';
-  document.getElementById('remail-form-suffix').value = cfg.suffix || '';
   document.getElementById('remail-form-timeout').value = cfg.timeout || 300;
   document.getElementById('remail-form-poll').value = cfg.pollPeriod || 3;
   document.getElementById('remail-edit-index').value = index;
@@ -154,12 +161,13 @@ async function saveRemailConfig() {
   var apiUrl = document.getElementById('remail-form-apiurl').value.trim();
   var projectSelect = document.getElementById('remail-form-project');
   var productSelect = document.getElementById('remail-form-product');
+  var suffixSelect = document.getElementById('remail-form-suffix-select');
   var projectId = parseInt(projectSelect.value);
   var productId = 0;
   var projectName = projectSelect.options[projectSelect.selectedIndex] ? projectSelect.options[projectSelect.selectedIndex].text : '';
   var productType = productSelect.value.trim();
+  var suffix = suffixSelect ? suffixSelect.value.trim() : '';
   var mode = document.getElementById('remail-form-mode').value;
-  var suffix = document.getElementById('remail-form-suffix').value.trim();
   var timeout = parseInt(document.getElementById('remail-form-timeout').value) || 300;
   var pollPeriod = parseInt(document.getElementById('remail-form-poll').value) || 3;
   var editIndex = parseInt(document.getElementById('remail-edit-index').value);
@@ -168,13 +176,11 @@ async function saveRemailConfig() {
   if (!projectId) { showToast('请选择项目', 'error'); return; }
   if (!productType) { showToast('请选择产品', 'error'); return; }
 
-  // 从缓存中获取 productId
-  var projectData = window.remailProjectsCache && window.remailProjectsCache[projectId];
-  if (projectData && projectData.products) {
-    var selectedProduct = projectData.products.find(function(p) { return p.type === productType; });
-    if (selectedProduct) { productId = selectedProduct.id; }
-  }
-  if (!productId) { showToast('无法获取产品ID，请重新刷新项目列表', 'error'); return; }
+  // ProductType 直接使用产品的 type 字段(新API)
+  // ProductID 使用默认映射(兼容旧版,实际不使用)
+  var productId = 1; // 保留字段兼容性
+  
+  console.log('[Remail] 使用 ProductType:', productType);
 
   var config = {
     name: name,
@@ -183,7 +189,8 @@ async function saveRemailConfig() {
     project: projectName,
     projectId: projectId,
     product: productType,
-    productId: productId,
+    productType: productType,  // 新增: 传递 type 字段给后端
+    productId: productId,      // 保留: 兼容旧版本
     mode: mode,
     suffix: suffix,
     timeout: timeout,
@@ -308,16 +315,11 @@ async function onRemailProjectChange() {
     return;
   }
 
-  var projectData = window.remailProjectsCache && window.remailProjectsCache[projectId];
-  if (projectData && projectData.products && projectData.products.length > 0) {
-    populateRemailProducts({ products: projectData.products });
-    return;
-  }
-
+  // 始终调用项目详情接口获取完整的产品信息(包含productId)
   var apiKey = document.getElementById('remail-form-apikey').value.trim();
   var apiUrl = document.getElementById('remail-form-apiurl').value.trim() || 'https://remail.aishop6.com';
 
-  productSelect.innerHTML = '<option value="">加载中...</option>';
+  productSelect.innerHTML = '<option value="">加载产品详情...</option>';
   productSelect.disabled = true;
 
   try {
@@ -328,6 +330,13 @@ async function onRemailProjectChange() {
       showToast('加载产品列表失败: ' + (result.error || '未知错误'), 'error');
       return;
     }
+    console.log('[Remail] 项目详情响应:', result.data);
+    
+    // 更新缓存中的项目数据为详情版本
+    if (window.remailProjectsCache && window.remailProjectsCache[projectId]) {
+      window.remailProjectsCache[projectId] = result.data;
+    }
+    
     populateRemailProducts(result.data);
   } catch (e) {
     productSelect.disabled = false;
@@ -338,9 +347,14 @@ async function onRemailProjectChange() {
 
 function populateRemailProducts(data) {
   var productSelect = document.getElementById('remail-form-product');
+  var suffixSelect = document.getElementById('remail-form-suffix-select');
   if (!productSelect) return;
 
   productSelect.innerHTML = '<option value="">请选择产品</option>';
+  if (suffixSelect) {
+    suffixSelect.innerHTML = '<option value="">自动分配</option>';
+    suffixSelect.disabled = true;
+  }
 
   var products = [];
   if (data.products && Array.isArray(data.products)) {
@@ -351,17 +365,24 @@ function populateRemailProducts(data) {
     products = data;
   }
 
+  console.log('[Remail] 解析到的产品列表:', products);
+
   if (products.length === 0) {
     productSelect.innerHTML = '<option value="">该项目暂无产品</option>';
     return;
   }
 
+  // 缓存产品数据（包含后缀信息和ID）
+  window.remailProductsCache = {};
   products.forEach(function(product) {
+    console.log('[Remail] 产品对象:', product);
+    
     var option = document.createElement('option');
     option.value = product.type;
     var displayName = product.type;
     if (product.type === 'microsoft') displayName = 'Microsoft 邮箱';
     else if (product.type === 'domain') displayName = '域名邮箱';
+    else if (product.type === 'icloud') displayName = 'iCloud 邮箱';
     else if (product.type === 'random') displayName = '随机邮箱';
 
     var statusText = product.status === 'enabled' ? '可用' : '不可用';
@@ -369,6 +390,48 @@ function populateRemailProducts(data) {
     option.textContent = displayName + availableText + ' - ' + statusText;
     option.disabled = product.status !== 'enabled';
     productSelect.appendChild(option);
+    
+    // 缓存产品数据
+    window.remailProductsCache[product.type] = product;
+  });
+  
+  // 监听产品选择变化，更新后缀下拉框
+  productSelect.onchange = function() {
+    onRemailProductChange();
+  };
+}
+
+// 产品选择变化时，更新后缀选择器
+function onRemailProductChange() {
+  var productSelect = document.getElementById('remail-form-product');
+  var suffixSelect = document.getElementById('remail-form-suffix-select');
+  if (!productSelect || !suffixSelect) return;
+  
+  var productType = productSelect.value;
+  if (!productType || !window.remailProductsCache) {
+    suffixSelect.innerHTML = '<option value="">自动分配</option>';
+    suffixSelect.disabled = true;
+    return;
+  }
+  
+  var product = window.remailProductsCache[productType];
+  if (!product || !product.suffixes || product.suffixes.length === 0) {
+    suffixSelect.innerHTML = '<option value="">自动分配</option>';
+    suffixSelect.disabled = true;
+    return;
+  }
+  
+  // 填充后缀选项
+  suffixSelect.innerHTML = '<option value="">自动分配（推荐）</option>';
+  suffixSelect.disabled = false;
+  
+  product.suffixes.forEach(function(suffixInfo) {
+    var option = document.createElement('option');
+    option.value = suffixInfo.suffix;
+    var availableText = suffixInfo.publicAvailable ? ' (' + suffixInfo.publicAvailable + '个)' : '';
+    option.textContent = suffixInfo.suffix + availableText;
+    option.disabled = !suffixInfo.publicAvailable || suffixInfo.publicAvailable === 0;
+    suffixSelect.appendChild(option);
   });
 }
 

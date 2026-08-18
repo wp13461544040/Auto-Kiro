@@ -77,7 +77,7 @@ const distJsDir = path.join(distDir, 'js');
 if (!fs.existsSync(distJsDir)) {
   fs.mkdirSync(distJsDir, { recursive: true });
 }
-const jsFiles = ['i18n.js', 'accounts.js', 'task.js', 'overview.js', 'app.js', 'moemail.js', 'cloudmail.js', 'mailnest.js', 'remail.js', 'email_providers.js', 'ui.js', 'subscription.js', 'proxy_pool.js'];
+const jsFiles = ['i18n.js', 'accounts.js', 'task.js', 'overview.js', 'app.js', 'moemail.js', 'cloudmail.js', 'mailnest.js', 'remail.js', 'email_providers.js', 'ui.js', 'subscription.js', 'proxy_pool.js', 'waf_config.js'];
 for (const file of jsFiles) {
   fs.copyFileSync(path.join(jsDir, file), path.join(distJsDir, file));
 }

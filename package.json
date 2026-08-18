@@ -1,0 +1,39 @@
+{
+  "name": "kirox-waf-server",
+  "version": "1.0.0",
+  "description": "WAF 指纹加密服务 for KiroX - 基于 Apify fingerprint-suite",
+  "main": "waf_server_fingerprint.js",
+  "scripts": {
+    "start": "node waf_server_fingerprint.js",
+    "start:basic": "node waf_server_nodejs.js",
+    "start:advanced": "node waf_server_advanced.js",
+    "test": "node test_waf.js",
+    "install:deps": "npm install express body-parser fingerprint-generator fingerprint-injector puppeteer axios"
+  },
+  "keywords": [
+    "fingerprint",
+    "waf",
+    "encryption",
+    "browser",
+    "anti-detection",
+    "fingerprint-suite",
+    "puppeteer"
+  ],
+  "author": "ArmorBreaker (破甲鸟)",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.19.0",
+    "body-parser": "^1.20.6",
+    "express": "^4.22.2",
+    "fingerprint-generator": "^2.1.88",
+    "fingerprint-injector": "^2.1.88",
+    "puppeteer": "^21.6.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-repo/kirox-waf"
+  }
+}

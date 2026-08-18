@@ -3,7 +3,6 @@
 var outlookCurrentPage = 1;
 var outlookPageSize = 10;
 var outlookAllAccounts = [];
-var outlookSelectedEmails = {}; // 已勾选的主账号 email 集合（仅主账号参与批量分裂）
 
 function _accT(key, varsOrFallback, fallbackMaybe) {
   var vars = null, fallback = null;
@@ -102,27 +101,10 @@ function renderOutlookPage() {
   var masterAccounts = (accounts || []).filter(function(a) {
     return (a.email.split('@')[0] || '').indexOf('+') === -1;
   });
-  var selectedCount = Object.keys(outlookSelectedEmails).length;
-  var allMasterChecked = masterAccounts.length > 0 && masterAccounts.every(function(a) {
-    return outlookSelectedEmails[a.email];
-  });
 
-  // 批量操作工具栏
+  // 批量操作工具栏（已移除分裂功能）
   if (batchBar) {
-    if (masterAccounts.length > 0) {
-      batchBar.style.display = 'flex';
-      batchBar.innerHTML =
-        '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--text-secondary);">' +
-          '<input type="checkbox" id="outlook-select-all-master" ' + (allMasterChecked ? 'checked' : '') + ' onchange="outlookToggleSelectAll(this.checked)" style="cursor:pointer;">' +
-          '全选主账号' +
-        '</label>' +
-        '<span style="font-size:12px;color:var(--text-muted);">已选 ' + selectedCount + '/' + masterAccounts.length + '</span>' +
-        (selectedCount > 0
-          ? '<button type="button" onclick="batchSplitOutlookAccounts()" class="btn btn-dark btn-sm" style="margin-left:auto;">批量分裂选中 (' + selectedCount + ')</button>'
-          : '');
-    } else {
-      batchBar.style.display = 'none';
-    }
+    batchBar.style.display = 'none';
   }
 
   if (accounts && accounts.length > 0) {
@@ -145,16 +127,12 @@ function renderOutlookPage() {
       var addedTime = acc.addedAt ? acc.addedAt.substring(5, 16) : '-';
       var emailEscaped = acc.email.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
       var isAlias = (acc.email.split('@')[0] || '').indexOf('+') !== -1;
-      var checked = outlookSelectedEmails[acc.email] ? 'checked' : '';
-      // 主账号显示复选框，子账号显示空白占位
-      var checkboxCell = !isAlias
-        ? '<td style="width:32px;padding:6px 8px;"><input type="checkbox" ' + checked + ' onchange="outlookToggleSelect(\'' + emailEscaped + '\', this.checked)" style="cursor:pointer;"></td>'
-        : '<td style="width:32px;"></td>';
+      // 所有账号显示空白占位（已移除分裂功能）
+      var checkboxCell = '<td style="width:32px;"></td>';
       html += '<tr>' + checkboxCell + '<td>' + (globalIdx+1) + '</td><td>' + acc.email + '</td>';
       html += '<td style="color:' + statusColor + ';font-weight:600;">' + status + '</td>';
       html += '<td style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">' + addedTime + '</td>';
       html += '<td style="text-align:right;white-space:nowrap;">' +
-        (!isAlias ? '<a href="javascript:void(0)" onclick="splitOutlookAccount(\'' + emailEscaped + '\')" style="color:var(--accent);margin-right:10px;">' + _accT('accounts.split', '分裂') + '</a>' : '') +
         '<a href="javascript:void(0)" onclick="deleteOutlookAccount(\'' + emailEscaped + '\')" style="color:var(--danger);">' + _accT('common.delete', '删除') + '</a>' +
         '</td></tr>';
     });
@@ -253,63 +231,6 @@ function openOutlookModal() {
   loadOutlookAccountsList();
 }
 
-// ===== 分裂账号 =====
-
-function splitOutlookAccount(email) {
-  // 弹出分裂数量输入框
-  var modalHtml = '<div id="split-outlook-modal" class="modal-overlay show" style="z-index:1200;">' +
-    '<div style="width:100%;max-width:380px;padding:24px;">' +
-    '<div class="card" style="padding:28px;">' +
-    '<div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px;">' + _accT('accounts.splitTitle', '分裂账号') + '</div>' +
-    '<div style="font-size:12px;color:var(--text-muted);margin-bottom:16px;line-height:1.5;">' +
-      _accT('accounts.splitDesc', { email: email }, '将 {email} 分裂为多个别名账号（最多 50 个），别名账号共享同一收件箱。') +
-    '</div>' +
-    '<div style="margin-bottom:16px;">' +
-    '<label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:6px;">' + _accT('accounts.splitCount', '分裂数量') + ' (1 - 100)</label>' +
-    '<input type="number" id="split-count-input" value="10" min="1" max="100" class="form-input" style="width:100%;">' +
-    '</div>' +
-    '<div class="btn-row">' +
-    '<button onclick="closeSplitModal()" class="btn btn-secondary" style="flex:1;justify-content:center;" data-i18n="common.cancel">取消</button>' +
-    '<button onclick="doSplitOutlookAccount(\'' + email.replace(/'/g, "\\'") + '\')" class="btn btn-dark" style="flex:1;justify-content:center;">' + _accT('accounts.splitConfirm', '确认分裂') + '</button>' +
-    '</div>' +
-    '</div></div></div>';
-
-  var container = document.createElement('div');
-  container.id = 'split-modal-container';
-  container.innerHTML = modalHtml;
-  document.body.appendChild(container);
-}
-
-function closeSplitModal() {
-  var el = document.getElementById('split-modal-container');
-  if (el) el.remove();
-}
-
-async function doSplitOutlookAccount(email) {
-  var countInput = document.getElementById('split-count-input');
-  var count = parseInt(countInput ? countInput.value : '10', 10);
-  if (isNaN(count) || count < 1) count = 1;
-  if (count > 100) count = 100;
-
-  closeSplitModal();
-
-  try {
-    var result = await window.go.main.App.SplitOutlookAccount(email, count);
-    if (result.error) {
-      showToast(result.error, 'error');
-      return;
-    }
-    await loadOutlookAccountsList();
-    var msg = _accT('accounts.splitSuccess', { n: result.added, total: result.total }, '已分裂 {n} 个别名账号，当前共 {total} 个');
-    if (result.splitCount && result.remainingSlot !== undefined) {
-      msg += ' (' + _accT('accounts.splitQuota', { used: result.splitCount, remaining: result.remainingSlot }, '已用 {used}/100，剩余 {remaining}') + ')';
-    }
-    showToast(msg);
-  } catch(e) {
-    showToast(_accT('accounts.splitFailed', '分裂失败') + ': ' + e.message, 'error');
-  }
-}
-
 // ===== 自动刷新（停留在邮箱池页时每 3 秒刷新状态） =====
 var outlookRefreshTimer = null;
 
@@ -323,91 +244,6 @@ function stopOutlookAutoRefresh() {
     clearInterval(outlookRefreshTimer);
     outlookRefreshTimer = null;
   }
-}
-
-// ===== 主账号复选框 =====
-
-function outlookToggleSelect(email, checked) {
-  if (checked) {
-    outlookSelectedEmails[email] = true;
-  } else {
-    delete outlookSelectedEmails[email];
-  }
-  renderOutlookPage();
-}
-
-function outlookToggleSelectAll(checked) {
-  outlookSelectedEmails = {};
-  if (checked) {
-    (outlookAllAccounts || []).forEach(function(a) {
-      if ((a.email.split('@')[0] || '').indexOf('+') === -1) {
-        outlookSelectedEmails[a.email] = true;
-      }
-    });
-  }
-  renderOutlookPage();
-}
-
-// ===== 批量分裂 =====
-
-function batchSplitOutlookAccounts() {
-  var emails = Object.keys(outlookSelectedEmails);
-  if (emails.length === 0) return;
-
-  var modalHtml = '<div id="split-outlook-modal" class="modal-overlay show" style="z-index:1200;">' +
-    '<div style="width:100%;max-width:400px;padding:24px;">' +
-    '<div class="card" style="padding:28px;">' +
-    '<div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px;">批量分裂账号</div>' +
-    '<div style="font-size:12px;color:var(--text-muted);margin-bottom:16px;line-height:1.5;">' +
-      '对选中的 <strong>' + emails.length + '</strong> 个主账号各自分裂，每个账号最多 100 个子账号。' +
-    '</div>' +
-    '<div style="margin-bottom:16px;">' +
-    '<label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:6px;">每个账号分裂数量 (1 - 100)</label>' +
-    '<input type="number" id="split-count-input" value="10" min="1" max="100" class="form-input" style="width:100%;">' +
-    '</div>' +
-    '<div class="btn-row">' +
-    '<button onclick="closeSplitModal()" class="btn btn-secondary" style="flex:1;justify-content:center;">取消</button>' +
-    '<button onclick="doBatchSplitOutlookAccounts()" class="btn btn-dark" style="flex:1;justify-content:center;">确认分裂</button>' +
-    '</div>' +
-    '</div></div></div>';
-
-  var container = document.createElement('div');
-  container.id = 'split-modal-container';
-  container.innerHTML = modalHtml;
-  document.body.appendChild(container);
-}
-
-async function doBatchSplitOutlookAccounts() {
-  var countInput = document.getElementById('split-count-input');
-  var count = parseInt(countInput ? countInput.value : '10', 10);
-  if (isNaN(count) || count < 1) count = 1;
-  if (count > 100) count = 100;
-
-  closeSplitModal();
-
-  var emails = Object.keys(outlookSelectedEmails);
-  if (emails.length === 0) return;
-
-  var totalAdded = 0;
-  var skipped = 0;
-  for (var i = 0; i < emails.length; i++) {
-    try {
-      var result = await window.go.main.App.SplitOutlookAccount(emails[i], count);
-      if (result.error) {
-        skipped++;
-      } else {
-        totalAdded += result.added || 0;
-      }
-    } catch (e) {
-      skipped++;
-    }
-  }
-
-  outlookSelectedEmails = {};
-  await loadOutlookAccountsList();
-  var msg = '批量分裂完成：共新增 ' + totalAdded + ' 个子账号';
-  if (skipped > 0) msg += '，' + skipped + ' 个账号已达上限或失败';
-  showToast(msg);
 }
 
 // 语言切换后重新渲染表格行（状态/操作链接等动态文本）

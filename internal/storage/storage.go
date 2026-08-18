@@ -16,6 +16,7 @@ const (
 	keyResultOutputDir = "result_output_dir"
 	keyProxy           = "proxy"
 	keyLanguage        = "language"
+	keyWAFConfig       = "waf_config"
 )
 
 var (
@@ -27,6 +28,8 @@ var (
 	_proxyOnce        sync.Once
 	_language         string
 	_languageOnce     sync.Once
+	_wafConfig        string
+	_wafConfigOnce    sync.Once
 )
 
 // GetDefaultDataDir 获取默认应用数据目录
@@ -79,7 +82,7 @@ func loadConfigMap() map[string]string {
 func saveConfigMap(m map[string]string) error {
 	os.MkdirAll(GetDefaultDataDir(), 0755)
 	var b strings.Builder
-	for _, k := range []string{keyDataDir, keyResultOutputDir, keyProxy, keyLanguage} {
+	for _, k := range []string{keyDataDir, keyResultOutputDir, keyProxy, keyLanguage, keyWAFConfig} {
 		if v := strings.TrimSpace(m[k]); v != "" {
 			b.WriteString(k)
 			b.WriteByte('=')
@@ -562,4 +565,44 @@ func saveJSON(filePath string, items []map[string]interface{}) error {
 		return err
 	}
 	return os.Rename(tmpFile, filePath)
+}
+
+// GetWAFConfig 获取 WAF 配置
+func GetWAFConfig() string {
+	_wafConfigOnce.Do(func() {
+		m := loadConfigMap()
+		_wafConfig = strings.TrimSpace(m[keyWAFConfig])
+	})
+	return _wafConfig
+}
+
+// SetWAFConfig 设置 WAF 配置(JSON 格式)
+func SetWAFConfig(configJSON string) error {
+	m := loadConfigMap()
+	if strings.TrimSpace(configJSON) == "" {
+		delete(m, keyWAFConfig)
+	} else {
+		// 验证 JSON 格式
+		var tmp map[string]interface{}
+		if err := json.Unmarshal([]byte(configJSON), &tmp); err != nil {
+			return fmt.Errorf("无效的 JSON 格式: %v", err)
+		}
+		m[keyWAFConfig] = configJSON
+	}
+	if err := saveConfigMap(m); err != nil {
+		return err
+	}
+	// 重置缓存
+	_wafConfigOnce = sync.Once{}
+	_wafConfig = strings.TrimSpace(m[keyWAFConfig])
+	return nil
+}
+
+// ResetWAFConfig 重置 WAF 配置
+func ResetWAFConfig() {
+	m := loadConfigMap()
+	delete(m, keyWAFConfig)
+	_ = saveConfigMap(m)
+	_wafConfigOnce = sync.Once{}
+	_wafConfig = ""
 }
