@@ -42,6 +42,7 @@ desktop.ini
 # Data & user config (runtime files, not source)
 results/
 output/
+data/captcha_logs/
 
 # Wails
 wailsjs/

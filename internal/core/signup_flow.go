@@ -211,10 +211,14 @@ func (r *Registrar) Step7_5SignupInit() error {
 
 	if r.WorkflowID == "" {
 		if r.Cfg.Debug {
-			log.Printf("[DEBUG] Signup init 响应: %s", string(body)[:min(500, len(body))])
+			log.Printf("[DEBUG] Signup init 完整响应: %s", string(body))
+		} else {
+			log.Printf("[DEBUG] Signup init 响应摘要: %s", string(body)[:min(500, len(body))])
 		}
-		return fmt.Errorf("Signup init 未返回 workflowID")
+		return fmt.Errorf("Signup init 未返回 workflowID，请检查响应结构")
 	}
+	
+	log.Printf("[DEBUG] 成功提取 workflowID: %s", r.WorkflowID)
 	return nil
 }
 
@@ -287,7 +291,8 @@ func (r *Registrar) Step9SendOTP() error {
 	// WaitForOTP 会自动只检查调用时刻之后 1 分钟内到达的邮件
 
 	ref := fmt.Sprintf("%s/?workflowID=%s", r.Cfg.ProfileBase, r.WorkflowID)
-	timeOnPage := 5000 + rand.Intn(3001)
+	// 使用正态分布生成更真实的页面停留时间
+	timeOnPage := genRealisticTimeOnPage(4000, 10000) // 4-10秒，平均7秒
 	fp := r.GenFPWithTime("profile", "PageSubmit", timeOnPage, len(r.Email), r.Email)
 	tsp := fmt.Sprintf("%d", timeOnPage)
 
@@ -322,20 +327,59 @@ func (r *Registrar) Step9SendOTP() error {
 	return nil
 }
 
+// genRealisticTimeOnPage 生成更真实的页面停留时间（正态分布）
+func genRealisticTimeOnPage(minMs, maxMs int) int {
+	mean := float64(minMs+maxMs) / 2
+	stdDev := float64(maxMs-minMs) / 6 // 6σ 覆盖几乎所有情况
+	
+	val := rand.NormFloat64()*stdDev + mean
+	result := int(val)
+	
+	// 限制在合理范围内
+	if result < minMs {
+		result = minMs
+	}
+	if result > maxMs {
+		result = maxMs
+	}
+	
+	return result
+}
+
 // Step10GetOTP 等待验证码 (临时邮箱或 Outlook IMAP)
 func (r *Registrar) Step10GetOTP() (string, error) {
 	log.Println("[10] 等待验证码")
+	
+	// 根据邮箱类型调整超时时间
+	timeout := 120 // 默认2分钟
+	interval := 5  // 默认5秒轮询
+	
+	// Outlook 可能延迟较大，延长超时时间
 	if r.Cfg.UseOutlook && r.Cfg.OutlookAccount != nil {
-		code, err := email.WaitForOTP(*r.Cfg.OutlookAccount, r.OutlookMailCount, 120, 5)
+		timeout = 180 // 3分钟
+		interval = 8  // 8秒轮询，减少服务器压力
+		
+		log.Printf("[10] 使用 Outlook 模式，超时时间: %ds, 轮询间隔: %ds", timeout, interval)
+		code, err := email.WaitForOTP(*r.Cfg.OutlookAccount, r.OutlookMailCount, timeout, interval)
 		if err != nil {
-			return "", err
+			// 区分错误类型
+			if strings.Contains(err.Error(), "超时") {
+				return "", fmt.Errorf("等待验证码超时(%ds)，可能是邮件服务延迟", timeout)
+			}
+			return "", fmt.Errorf("获取验证码失败: %w", err)
 		}
 		log.Printf("验证码: %s", code)
 		return code, nil
 	}
-	code, err := r.EmailSvc.WaitForCode(120, 3)
+	
+	// 临时邮箱通常较快
+	log.Printf("[10] 使用临时邮箱模式，超时时间: %ds, 轮询间隔: %ds", timeout, interval)
+	code, err := r.EmailSvc.WaitForCode(timeout, interval)
 	if err != nil {
-		return "", err
+		if strings.Contains(err.Error(), "超时") {
+			return "", fmt.Errorf("等待验证码超时(%ds)，请检查邮箱服务", timeout)
+		}
+		return "", fmt.Errorf("获取验证码失败: %w", err)
 	}
 	log.Printf("验证码: %s", code)
 	return code, nil

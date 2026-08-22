@@ -109,26 +109,32 @@ func genInteraction(eventType string) map[string]interface{} {
 			"keyCycles": []int{}, "mouseCycles": []int{}, "touchCycles": []int{},
 		}
 	}
-	nClicks := 1 + rand.Intn(10) // 1~10 clicks
-	nKeys := 3 + rand.Intn(20)   // 3~22 keys
+	
+	// 使用更真实的随机分布
+	nClicks := randNormal(5, 3, 1, 15)      // 平均5次点击，标准差3
+	nKeys := randNormal(12, 6, 3, 30)       // 平均12次按键，标准差6
 	nIntervals := max(1, nKeys/3) + rand.Intn(max(1, nKeys/2-nKeys/3+1))
 	nCycles := max(2, nKeys/2) + rand.Intn(max(1, nKeys*2/3-nKeys/2+1))
 
 	intervals := make([]int, nIntervals)
 	for i := range intervals {
-		intervals[i] = 30 + rand.Intn(1500) // 30ms-1.5s
+		// 按键间隔使用对数正态分布，更符合真实打字节奏
+		intervals[i] = randLogNormal(200, 400, 30, 2000) // 平均200ms，偶尔有长停顿
 	}
 	cycles := make([]int, nCycles)
 	for i := range cycles {
-		cycles[i] = 10 + rand.Intn(800)
+		cycles[i] = randNormal(150, 100, 10, 1000)
 	}
 	positions := make([]string, nClicks)
 	for i := range positions {
-		positions[i] = fmt.Sprintf("%d,%d", 50+rand.Intn(1500), 50+rand.Intn(800))
+		// 点击位置聚集在常见区域
+		x := randNormal(800, 300, 50, 1600)
+		y := randNormal(400, 200, 50, 900)
+		positions[i] = fmt.Sprintf("%d,%d", x, y)
 	}
 	mouseCycles := make([]int, nClicks)
 	for i := range mouseCycles {
-		mouseCycles[i] = 20 + rand.Intn(300)
+		mouseCycles[i] = randNormal(100, 50, 20, 400)
 	}
 
 	return map[string]interface{}{
@@ -138,6 +144,36 @@ func genInteraction(eventType string) map[string]interface{} {
 		"mouseClickPositions":   positions,
 		"keyCycles": cycles, "mouseCycles": mouseCycles, "touchCycles": []int{},
 	}
+}
+
+// randNormal 生成正态分布的随机整数，限制在 [minVal, maxVal] 范围内
+func randNormal(mean, stdDev float64, minVal, maxVal int) int {
+	val := rand.NormFloat64()*stdDev + mean
+	result := int(val)
+	if result < minVal {
+		result = minVal
+	}
+	if result > maxVal {
+		result = maxVal
+	}
+	return result
+}
+
+// randLogNormal 生成对数正态分布的随机整数，适合模拟时间间隔
+func randLogNormal(median, spread float64, minVal, maxVal int) int {
+	// 使用指数分布近似对数正态分布
+	lambda := 1.0 / median
+	val := -1.0 / lambda * rand.ExpFloat64()
+	val = val * (1.0 + rand.Float64()*spread/median)
+	
+	result := int(val)
+	if result < minVal {
+		result = minVal
+	}
+	if result > maxVal {
+		result = maxVal
+	}
+	return result
 }
 
 // genFormField 生成表单字段追踪数据

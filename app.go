@@ -703,3 +703,19 @@ func (a *App) TestProxyEntry(rawURL string) proxy.Info {
 func (a *App) BatchTestProxies(ids []string) map[string]proxy.Info {
 	return proxy.BatchTest(ids)
 }
+
+// ResetProxyCooldown 重置指定代理的冷却状态
+func (a *App) ResetProxyCooldown(id string) map[string]interface{} {
+	if err := proxy.ResetCooldown(id); err != nil {
+		return map[string]interface{}{"error": err.Error()}
+	}
+	return map[string]interface{}{"success": true}
+}
+
+// ResetAllProxyCooldowns 重置所有代理的冷却状态
+func (a *App) ResetAllProxyCooldowns() map[string]interface{} {
+	if err := proxy.ResetAllCooldowns(); err != nil {
+		return map[string]interface{}{"error": err.Error()}
+	}
+	return map[string]interface{}{"success": true}
+}

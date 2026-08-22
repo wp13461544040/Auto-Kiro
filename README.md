@@ -15,12 +15,11 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-v1.0.0-6366f1?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/version-v2.0--optimized-6366f1?style=flat-square" alt="version">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0078d4?style=flat-square" alt="platform">
   <img src="https://img.shields.io/badge/Go-1.24-00ADD8?style=flat-square&logo=go" alt="go">
   <img src="https://img.shields.io/badge/Wails-v2-red?style=flat-square" alt="wails">
-   <a href="https://linux.do"><img src="https://img.shields.io/badge/LINUX%20DO-社区-f0b752?style=flat-square" alt="LINUX
-   DO"></a>
+  <a href="https://linux.do"><img src="https://img.shields.io/badge/LINUX%20DO-社区-f0b752?style=flat-square" alt="LINUX DO"></a>
   <img src="https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square" alt="license">
 </p>
 
@@ -29,6 +28,18 @@
 ## 简介
 
 KiroX 是一款基于 [Wails v2](https://wails.io) 构建的桌面应用，用于自动化完成 AWS Builder ID 账号的批量注册流程。支持 Outlook 邮箱池、MoeMail 临时邮箱、MailNest 临时邮箱以及自部署的 Cloud-Mail 四种邮件来源，内置浏览器指纹模拟、并发控制、代理支持和自动更新。
+
+**优化版本特性** (v2.0-optimized):
+- ✅ 智能代理池管理：8小时自动冷却，避免代理过度使用
+- ✅ 动态并发控制：根据可用代理数自动调整并发
+- ✅ 时序真实性：正态分布模拟真实用户行为
+- ✅ 增强错误处理：详细日志，便于问题排查
+
+📖 **优化文档**:
+- [优化变更日志](OPTIMIZATION_CHANGELOG.md) - 详细变更记录
+- [优化总结](docs/OPTIMIZATION_SUMMARY.md) - 完整优化说明
+- [快速参考](docs/QUICK_REFERENCE.md) - 快速上手指南
+- [故障点分析](docs/POTENTIAL_FAILURE_POINTS.md) - 问题排查手册
 
 ---
 
@@ -50,14 +61,14 @@ KiroX 是一款基于 [Wails v2](https://wails.io) 构建的桌面应用，用�
 - 随机化设备指纹（GPU、内存、CPU 核数、屏幕分辨率）
 - WebGL 扩展伪造、Canvas 指纹生成
 - 基于 `tls-client` 的 TLS 指纹模拟
+- **正态分布交互数据**：点击、按键、停留时间更接近真实用户
+- **指纹一致性保证**：同一会话内硬件级字段保持不变
 
-**数据管理**
-- 注册成功的账号以明文 JSON 写入可配置的输出目录
-- Outlook 账号信息以 JSON 形式本地存储
-- 支持自定义数据目录和结果输出目录
-
-**代理**
+**代理管理** (优化版新增)
 - 全局代理配置，支持 HTTP / HTTPS / SOCKS5
+- **代理池管理**：多代理轮换，8小时自动冷却机制
+- **智能并发控制**：根据可用代理数动态调整并发
+- **实时状态监控**：前端显示代理冷却状态和剩余时间
 - 支持 `协议://用户:密码@host:port` 或简写 `host:port:user:pass` 格式
 
 **自动更新**
@@ -146,7 +157,24 @@ wails build
 ]
 ```
 
-### 4. 代理配置
+### 4. 代理池管理 (优化版)
+
+在「代理池」页面：
+- 添加多个代理，设置权重（1-100）
+- 系统自动轮换代理，每个代理使用后冷却8小时
+- 前端显示冷却状态和剩余时间
+- 可手动「解除冷却」或「重置全部冷却」
+
+**代理池建议**:
+```
+并发数 → 最少代理数
+并发1  → 3个代理
+并发5  → 12个代理
+并发10 → 25个代理
+并发20 → 45个代理
+```
+
+### 5. 全局代理配置
 
 在「设置」页面填入代理地址，支持以下格式：
 ```
@@ -210,11 +238,61 @@ kirox/
 - 本工具仅供学习和研究使用，请遵守 AWS 服务条款
 - 建议配合代理使用，避免 IP 被限速
 - Outlook 账号需提前准备好有效的 RefreshToken
-- 并发数过高可能触发 AWS 风控，建议从低并发开始测试
+- 并发数建议根据可用代理数调整（系统会自动提示）
+- **代理池模式**：确保有足够的代理数量（建议 = 并发数 × 2.5）
+- **调试模式**：遇到问题时在设置中启用 Debug 查看详细日志
 
 ---
 
 ## 常见问题
+
+### 人机验证相关 🆕
+
+**问题：设置密码时遇到人机验证**
+
+系统会自动：
+1. 保存完整的验证码信息到 `data/captcha_logs/`
+2. 尝试使用 OCR 识别验证码（如果安装了 Tesseract）
+3. 记录详细日志用于分析
+
+保存的文件：
+- `*_response.json` - 完整响应
+- `*_info.json` - 详细上下文
+- `*_analysis.txt` - 分析报告
+- `*_captcha.png` - 验证码图片（如果有）
+
+解决方案：
+1. 查看 `data/captcha_logs/` 目录下的分析报告
+2. 阅读 [人机验证分析指南](docs/CAPTCHA_ANALYSIS.md)
+3. 根据分析调整代理或指纹配置
+4. 考虑安装 Tesseract 进行 OCR 识别
+
+**降低触发概率**：
+- 使用高质量住宅代理
+- 增加代理池大小，降低单个代理使用频率
+- 降低并发数
+- 增加任务间隔时间
+
+### 代理池相关 (优化版)
+
+**问题：提示"代理池无可用代理"**
+
+原因：所有代理都在冷却中或已禁用
+
+解决方案：
+1. 点击「重置全部冷却」按钮
+2. 添加更多代理到代理池
+3. 等待冷却时间过去（8小时）
+4. 检查代理是否被禁用
+
+**问题：并发数过高提示**
+
+日志：`建议并发数: X (当前设置: Y)`
+
+解决方案：
+1. 查看当前可用代理数
+2. 手动调整并发数为建议值
+3. 或增加代理数量
 
 ### IP 纯净度相关
 
@@ -247,6 +325,23 @@ xattr -cr /path/to/KiroX.app
 ```
 
 将 `/path/to/KiroX.app` 替换成实际路径（例如把 `KiroX.app` 拖入终端可自动填入）。
+
+---
+
+## 版本历史
+
+### v2.0-optimized (2026-08-22)
+- ✅ 新增代理池智能管理（8小时自动冷却）
+- ✅ 动态并发控制（根据可用代理自动调整）
+- ✅ 时序真实性改进（正态分布模拟）
+- ✅ 增强错误处理和调试日志
+- ✅ WAF 加密服务预检
+- 📖 详见 [OPTIMIZATION_CHANGELOG.md](OPTIMIZATION_CHANGELOG.md)
+
+### v1.0.0
+- 基础注册功能
+- 支持多种邮箱服务
+- 浏览器指纹模拟
 
 ---
 

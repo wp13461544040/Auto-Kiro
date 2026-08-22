@@ -58,6 +58,7 @@ function renderProxyPool() {
       '<span style="font-size:12px;color:var(--text-muted);">已选 ' + selectedCount + '/' + proxyPool.length + '</span>' +
       '<div style="margin-left:auto;display:flex;gap:6px;">' +
         '<button id="btn-batch-test-all" type="button" onclick="batchTestProxies(null)" class="btn btn-secondary btn-sm">测试全部</button>' +
+        '<button type="button" onclick="resetAllProxyCooldowns()" class="btn btn-secondary btn-sm">重置全部冷却</button>' +
         (selectedCount > 0
           ? '<button id="btn-batch-test-selected" type="button" onclick="batchTestProxies(Object.keys(proxySelectedIds))" class="btn btn-secondary btn-sm">测试选中 (' + selectedCount + ')</button>' +
             '<button type="button" onclick="deleteSelectedProxies()" class="btn btn-sm" style="background:var(--danger);color:#fff;border:none;">删除选中 (' + selectedCount + ')</button>'
@@ -71,14 +72,33 @@ function renderProxyPool() {
     var p = proxyPool[idx];
     var pct = (multi && totalSoft > 0) ? (Math.round(soft[idx] / totalSoft * 1000) / 10) : null;
     var checked = proxySelectedIds[p.id] ? 'checked' : '';
+    
+    // 计算冷却剩余时间
+    var cooldownInfo = '';
+    if (p.in_cooldown && p.last_used_at) {
+      var lastUsed = new Date(p.last_used_at);
+      var now = new Date();
+      var elapsed = (now - lastUsed) / 1000 / 3600; // 小时
+      var remaining = Math.max(0, 8 - elapsed);
+      if (remaining > 0) {
+        var hours = Math.floor(remaining);
+        var minutes = Math.ceil((remaining - hours) * 60);
+        cooldownInfo = '<span style="color:#f59e0b;font-size:11px;margin-left:4px;">冷却中 ' + hours + 'h' + minutes + 'm</span>';
+      }
+    }
+    
     html += (
       '<div style="display:flex;flex-direction:column;gap:3px;margin-bottom:6px;">' +
         '<div style="display:flex;align-items:center;gap:6px;">' +
           '<input type="checkbox" ' + checked + ' onchange="proxyToggleSelect(\'' + p.id + '\', this.checked)" style="cursor:pointer;flex-shrink:0;">' +
-          '<input type="text" value="' + escapeProxyHtml(p.url) + '" placeholder="留空=直连" onchange="updateProxyEntryURL(\'' + p.id + '\', this.value)" class="form-input" style="flex:1;font-family:var(--font-mono);font-size:12px;">' +
+          '<input type="text" value="' + escapeProxyHtml(p.url) + '" placeholder="留空=直连" onchange="updateProxyEntryURL(\'' + p.id + '\', this.value)" class="form-input" style="flex:1;font-family:var(--font-mono);font-size:12px;' + (p.in_cooldown ? 'opacity:0.6;' : '') + '">' +
           '<input type="number" min="1" max="100" value="' + (p.weight || 1) + '" title="权重 1-100" onchange="updateProxyEntry(\'' + p.id + '\', \'weight\', this.value)" style="width:54px;text-align:center;padding:4px;border:1px solid var(--border);border-radius:4px;background:var(--bg-subtle);font-size:12px;">' +
           (pct != null ? '<span style="font-size:11px;color:var(--text-muted);min-width:42px;text-align:right;">' + pct + '%</span>' : '') +
+          cooldownInfo +
           '<button type="button" onclick="testProxyEntryByIdx(' + idx + ')" class="btn btn-secondary btn-sm">测试</button>' +
+          (p.in_cooldown 
+            ? '<button type="button" onclick="resetProxyCooldown(\'' + p.id + '\')" class="btn btn-secondary btn-sm" style="color:#f59e0b;">解除冷却</button>'
+            : '') +
           '<button type="button" onclick="deleteProxyEntry(\'' + p.id + '\')" class="btn btn-secondary btn-sm" style="color:var(--danger);">删除</button>' +
         '</div>' +
         '<span id="proxy-test-status-' + p.id + '" style="display:none;margin-left:24px;font-size:11px;padding:2px 8px;border-radius:4px;font-family:var(--font-mono);align-items:center;max-width:calc(100% - 24px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>' +
@@ -431,4 +451,41 @@ async function batchTestProxies(idsToTest) {
     if (btn) { btn.disabled = false; btn.textContent = '测试全部'; }
     if (btnSel) { btnSel.disabled = false; }
   }
+}
+
+// 重置单个代理的冷却状态
+async function resetProxyCooldown(id) {
+  try {
+    var res = await window.go.main.App.ResetProxyCooldown(id);
+    if (res && res.error) {
+      showToast(res.error, 'error');
+      return;
+    }
+    showToast('已解除冷却');
+    await loadProxyPool();
+  } catch (e) {
+    showToast('解除冷却失败: ' + e.message, 'error');
+  }
+}
+
+// 重置所有代理的冷却状态
+async function resetAllProxyCooldowns() {
+  showConfirmModal(
+    '重置全部冷却',
+    '确认重置所有代理的冷却状态？',
+    '确认重置',
+    async function() {
+      try {
+        var res = await window.go.main.App.ResetAllProxyCooldowns();
+        if (res && res.error) {
+          showToast(res.error, 'error');
+          return;
+        }
+        showToast('已重置全部代理冷却状态');
+        await loadProxyPool();
+      } catch (e) {
+        showToast('重置失败: ' + e.message, 'error');
+      }
+    }
+  );
 }

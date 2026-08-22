@@ -14,11 +14,13 @@ import (
 
 // PoolEntry 多代理池条目
 type PoolEntry struct {
-	ID      string `json:"id"`      // 内部 ID，UI 用
-	Name    string `json:"name"`    // 用户可见名称
-	URL     string `json:"url"`     // 完整代理 URL（已归一化）
-	Weight  int    `json:"weight"`  // 1-100，越高被选中概率越大
-	Enabled bool   `json:"enabled"` // 关闭时不参与抽签
+	ID         string    `json:"id"`          // 内部 ID，UI 用
+	Name       string    `json:"name"`        // 用户可见名称
+	URL        string    `json:"url"`         // 完整代理 URL（已归一化）
+	Weight     int       `json:"weight"`      // 1-100，越高被选中概率越大
+	Enabled    bool      `json:"enabled"`     // 关闭时不参与抽签
+	LastUsedAt time.Time `json:"last_used_at"` // 最后使用时间
+	InCooldown bool      `json:"in_cooldown"` // 是否在冷却中
 }
 
 // poolFile JSON 持久化结构
@@ -29,6 +31,8 @@ type poolFile struct {
 const (
 	// Power 用于"软最大化"：>1 时拉大权重差，<1 时压平。0.6 保证哪怕权重 1 vs 100 也有 ~6% 概率被选中。
 	weightPower = 0.6
+	// 冷却时长：8小时
+	cooldownDuration = 8 * time.Hour
 )
 
 var (
@@ -62,6 +66,8 @@ func loadPoolLocked() error {
 		return fmt.Errorf("解析代理池失败: %w", err)
 	}
 	poolEntries = pf.Entries
+	// 加载后自动清除过期的冷却标记
+	cleanExpiredCooldowns()
 	return nil
 }
 
@@ -218,21 +224,27 @@ func DeleteBatch(ids []string) (int, error) {
 	return removed, savePoolLocked()
 }
 
-// PickRandom 按权重抽签返回一个启用的代理 URL；池为空或全部禁用返回空串。
+// PickRandom 按权重抽签返回一个启用且未在冷却中的代理 URL；池为空或全部不可用返回空串。
 // 使用 weightPower 软化：让低权重也有非零概率被命中，避免全部任务落到单一代理。
+// 选中后自动标记为使用并设置8小时冷却。
 func PickRandom() string {
 	poolMu.Lock()
 	defer poolMu.Unlock()
 	loadPoolLocked()
 
+	// 先清理过期的冷却标记
+	cleanExpiredCooldowns()
+
 	type cand struct {
+		idx  int
 		url  string
 		soft float64
 	}
 	candidates := make([]cand, 0, len(poolEntries))
 	var total float64
-	for _, e := range poolEntries {
-		if e.URL == "" {
+	for i, e := range poolEntries {
+		// 只选择启用且不在冷却中的代理
+		if !e.Enabled || e.InCooldown || e.URL == "" {
 			continue
 		}
 		w := e.Weight
@@ -240,7 +252,7 @@ func PickRandom() string {
 			w = 1
 		}
 		soft := math.Pow(float64(w), weightPower)
-		candidates = append(candidates, cand{e.URL, soft})
+		candidates = append(candidates, cand{idx: i, url: e.URL, soft: soft})
 		total += soft
 	}
 	if total <= 0 || len(candidates) == 0 {
@@ -250,19 +262,29 @@ func PickRandom() string {
 	for _, c := range candidates {
 		r -= c.soft
 		if r <= 0 {
+			// 标记使用并设置冷却
+			poolEntries[c.idx].LastUsedAt = time.Now()
+			poolEntries[c.idx].InCooldown = true
+			savePoolLocked()
 			return c.url
 		}
 	}
+	// 最后一个候选
+	lastIdx := candidates[len(candidates)-1].idx
+	poolEntries[lastIdx].LastUsedAt = time.Now()
+	poolEntries[lastIdx].InCooldown = true
+	savePoolLocked()
 	return candidates[len(candidates)-1].url
 }
 
-// HasEnabled 是否至少一个启用的池条目
+// HasEnabled 是否至少一个启用且未冷却的池条目
 func HasEnabled() bool {
 	poolMu.Lock()
 	defer poolMu.Unlock()
 	loadPoolLocked()
+	cleanExpiredCooldowns()
 	for _, e := range poolEntries {
-		if e.Enabled && e.URL != "" {
+		if e.Enabled && !e.InCooldown && e.URL != "" {
 			return true
 		}
 	}
@@ -320,4 +342,65 @@ func BatchTest(ids []string) map[string]Info {
 		out[r.id] = r.info
 	}
 	return out
+}
+
+// cleanExpiredCooldowns 清理已过期的冷却标记（必须在已持锁状态下调用）
+func cleanExpiredCooldowns() {
+	now := time.Now()
+	changed := false
+	for i := range poolEntries {
+		if poolEntries[i].InCooldown {
+			// 检查是否超过8小时
+			if !poolEntries[i].LastUsedAt.IsZero() && now.Sub(poolEntries[i].LastUsedAt) >= cooldownDuration {
+				poolEntries[i].InCooldown = false
+				changed = true
+			}
+		}
+	}
+	if changed {
+		savePoolLocked()
+	}
+}
+
+// ResetCooldown 手动重置指定代理的冷却状态
+func ResetCooldown(id string) error {
+	poolMu.Lock()
+	defer poolMu.Unlock()
+	loadPoolLocked()
+	for i, e := range poolEntries {
+		if e.ID == id {
+			poolEntries[i].InCooldown = false
+			poolEntries[i].LastUsedAt = time.Time{}
+			return savePoolLocked()
+		}
+	}
+	return fmt.Errorf("代理不存在")
+}
+
+// ResetAllCooldowns 重置所有代理的冷却状态
+func ResetAllCooldowns() error {
+	poolMu.Lock()
+	defer poolMu.Unlock()
+	loadPoolLocked()
+	for i := range poolEntries {
+		poolEntries[i].InCooldown = false
+		poolEntries[i].LastUsedAt = time.Time{}
+	}
+	return savePoolLocked()
+}
+
+// CountAvailable 统计当前可用（启用且未冷却）的代理数量
+func CountAvailable() int {
+	poolMu.Lock()
+	defer poolMu.Unlock()
+	loadPoolLocked()
+	cleanExpiredCooldowns()
+	
+	count := 0
+	for _, e := range poolEntries {
+		if e.Enabled && !e.InCooldown && e.URL != "" {
+			count++
+		}
+	}
+	return count
 }

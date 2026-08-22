@@ -148,3 +148,32 @@ func EncryptFingerprintSmart(fingerprintJSON string) string {
 	// 降级到本地加密
 	return EncryptFingerprint(fingerprintJSON)
 }
+
+// TestWAFConnection 测试 WAF 服务连接和功能
+func TestWAFConnection() error {
+	cfg := GetWAFConfig()
+	if cfg == nil || !cfg.Enabled {
+		return fmt.Errorf("WAF 服务未启用")
+	}
+	
+	if cfg.BaseURL == "" {
+		return fmt.Errorf("WAF 服务地址未配置")
+	}
+	
+	// 使用测试指纹进行加密测试
+	testFP := `{"test":"fingerprint","timestamp":` + fmt.Sprintf("%d", time.Now().Unix()) + `}`
+	
+	log.Printf("[WAF] 测试连接: %s", cfg.BaseURL)
+	
+	encrypted, err := EncryptFingerprintWithWAF(testFP)
+	if err != nil {
+		return fmt.Errorf("WAF 连接测试失败: %w", err)
+	}
+	
+	if len(encrypted) == 0 {
+		return fmt.Errorf("WAF 返回空加密结果")
+	}
+	
+	log.Printf("[WAF] 连接测试成功，加密结果长度: %d", len(encrypted))
+	return nil
+}
