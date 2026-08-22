@@ -15,22 +15,53 @@ type chromeVersion struct {
 	SecUA   string
 }
 
-// genChromeVersion 动态生成 Chrome 版本信息
+// genChromeVersion 动态生成 Chrome 版本信息 (带权重分布)
 func genChromeVersion() chromeVersion {
-	versions := []string{
-		"120", "121", "122", "123", "124", "125", "126", "127", "128", "129",
-		"130", "131", "132", "133", "134", "135", "136", "137", "138", "139",
-		"140", "141", "142", "143", "144",
+	type versionWeight struct {
+		version string
+		weight  int
 	}
-	v := versions[rand.Intn(len(versions))]
+
+	// Chrome 版本池 (包含旧版本)
+	versions := []versionWeight{
+		// 旧版本 (10% - 模拟未及时更新的用户)
+		{"127", 3}, {"128", 4}, {"129", 5},
+		// 中间版本 (30%)
+		{"130", 8}, {"131", 10}, {"132", 10}, {"133", 10}, {"134", 10}, {"135", 10},
+		// 较新版本 (40%)
+		{"136", 12}, {"137", 12}, {"138", 15}, {"139", 15}, {"140", 18},
+		// 最新版本 (20%)
+		{"141", 10}, {"142", 8}, {"143", 6}, {"144", 5},
+	}
+
+	totalWeight := 0
+	for _, vw := range versions {
+		totalWeight += vw.weight
+	}
+
+	r := rand.Intn(totalWeight)
+	accumulated := 0
+	var selectedVersion string
+	for _, vw := range versions {
+		accumulated += vw.weight
+		if r < accumulated {
+			selectedVersion = vw.version
+			break
+		}
+	}
+
+	// 如果没有选中（理论上不会发生），使用最常见的版本
+	if selectedVersion == "" {
+		selectedVersion = "140"
+	}
 
 	greaseBrands := []string{"Not_A Brand", "Not(A:Brand", "Not-A.Brand", "Not)A;Brand", "Not/A)Brand", "Not A;Brand", "Not?A_Brand"}
 	greaseBrand := greaseBrands[rand.Intn(len(greaseBrands))]
 	greaseVer := fmt.Sprintf("%d", 8+rand.Intn(92)) // 8~99
 
-	secUA := fmt.Sprintf(`"%s";v="%s", "Chromium";v="%s", "Google Chrome";v="%s"`, greaseBrand, greaseVer, v, v)
+	secUA := fmt.Sprintf(`"%s";v="%s", "Chromium";v="%s", "Google Chrome";v="%s"`, greaseBrand, greaseVer, selectedVersion, selectedVersion)
 	return chromeVersion{
-		Version: v + ".0.0.0",
+		Version: selectedVersion + ".0.0.0",
 		SecUA:   secUA,
 	}
 }
@@ -101,7 +132,136 @@ type BrowserIdentity struct {
 	WebpackHash         string
 }
 
-// ──────────────────── 算法: GPU 配置生成 ────────────────────
+// ──────────────────── 算法: 硬件配置生成 ────────────────────
+// 生成合理的 CPU + 内存组合
+
+func genHardwareConfig() (cpu int, mem int) {
+	type config struct {
+		cpu int
+		mem int
+	}
+
+	// 合理的配置组合 (低端、中端、高端)
+	configs := []config{
+		// 低端配置 (30%)
+		{2, 4}, {2, 8}, {4, 8}, {4, 12},
+		// 中端配置 (50%)
+		{4, 16}, {6, 16}, {8, 16}, {8, 24}, {10, 24}, {12, 24},
+		// 高端配置 (20%)
+		{12, 32}, {16, 32}, {16, 48}, {20, 48}, {24, 64},
+	}
+
+	weights := []int{
+		10, 10, 10, 10, // 低端
+		12, 12, 15, 15, 15, 15, // 中端
+		8, 8, 5, 3, 2, // 高端
+	}
+
+	totalWeight := 0
+	for _, w := range weights {
+		totalWeight += w
+	}
+
+	r := rand.Intn(totalWeight)
+	accumulated := 0
+	for i, w := range weights {
+		accumulated += w
+		if r < accumulated {
+			return configs[i].cpu, configs[i].mem
+		}
+	}
+
+	// 默认返回中端配置
+	return 8, 16
+}
+
+// ──────────────────── 算法: GPU 智能选择 ────────────────────
+// 根据 CPU 和内存档次选择合理的 GPU
+
+func selectGPU(cpuCores int, memoryGB int) (vendor, model string) {
+	type gpuFamily struct {
+		chipVendor string
+		prefix     string
+		models     []string
+	}
+
+	// Intel 集成显卡 (低端)
+	intelLowEnd := gpuFamily{
+		chipVendor: "Intel",
+		prefix:     "Intel(R) ",
+		models: []string{
+			"HD Graphics 520", "HD Graphics 530", "HD Graphics 620", "HD Graphics 630",
+			"HD Graphics 4600", "HD Graphics 5500", "UHD Graphics 620", "UHD Graphics 630",
+		},
+	}
+
+	// Intel 高端集显 (中端)
+	intelHighEnd := gpuFamily{
+		chipVendor: "Intel",
+		prefix:     "Intel(R) ",
+		models: []string{
+			"Iris(R) Xe Graphics", "Iris(R) Plus Graphics 640", "Iris(R) Plus Graphics 655",
+			"UHD Graphics 730", "UHD Graphics 770",
+		},
+	}
+
+	// NVIDIA 入门独显 (中端)
+	nvidiaEntry := gpuFamily{
+		chipVendor: "NVIDIA",
+		prefix:     "NVIDIA ",
+		models: []string{
+			"GeForce GTX 1050 Ti", "GeForce GTX 1650", "GeForce GTX 1060 6GB",
+			"GeForce MX450", "GeForce MX550",
+		},
+	}
+
+	// NVIDIA 主流独显 (高端)
+	nvidiaMain := gpuFamily{
+		chipVendor: "NVIDIA",
+		prefix:     "NVIDIA ",
+		models: []string{
+			"GeForce GTX 1660 Super", "GeForce RTX 2060", "GeForce RTX 3050 Laptop GPU",
+			"GeForce RTX 3060", "GeForce RTX 3060 Ti", "GeForce RTX 3070",
+			"GeForce RTX 4060", "GeForce RTX 4070",
+		},
+	}
+
+	// AMD 显卡 (中高端)
+	amdGPUs := gpuFamily{
+		chipVendor: "AMD",
+		prefix:     "AMD ",
+		models: []string{
+			"Radeon RX 580", "Radeon RX 5500 XT", "Radeon RX 5600 XT",
+			"Radeon RX 6600 XT", "Radeon RX 6700 XT", "Radeon RX 7600",
+			"Radeon(TM) Graphics", "Radeon Vega 8 Graphics",
+		},
+	}
+
+	var selectedFamily gpuFamily
+
+	// 根据硬件配置档次选择 GPU
+	if cpuCores <= 4 && memoryGB <= 12 {
+		// 低端配置 → Intel 低端集显
+		selectedFamily = intelLowEnd
+	} else if cpuCores <= 8 && memoryGB <= 24 {
+		// 中端配置 → Intel 高端集显 / NVIDIA 入门独显 / AMD
+		choices := []gpuFamily{intelHighEnd, intelHighEnd, nvidiaEntry, amdGPUs}
+		selectedFamily = choices[rand.Intn(len(choices))]
+	} else {
+		// 高端配置 → NVIDIA 主流独显 / AMD 高端
+		choices := []gpuFamily{nvidiaMain, nvidiaMain, amdGPUs}
+		selectedFamily = choices[rand.Intn(len(choices))]
+	}
+
+	// 从选中的 GPU 系列中随机选择一个型号
+	m := selectedFamily.models[rand.Intn(len(selectedFamily.models))]
+
+	vendor = fmt.Sprintf("Google Inc. (%s)", selectedFamily.chipVendor)
+	model = fmt.Sprintf("ANGLE (%s, %s%s Direct3D11 vs_5_0 ps_5_0, D3D11)", selectedFamily.chipVendor, selectedFamily.prefix, m)
+	return
+}
+
+// ──────────────────── 算法: GPU 配置生成 (保留原函数作为后备) ────────────────────
 // 规律: Vendor = "Google Inc. ({芯片厂商})"
 //       Model  = "ANGLE ({芯片厂商}, {芯片型号} Direct3D11 vs_5_0 ps_5_0, D3D11)"
 
@@ -162,47 +322,65 @@ func genGPU() (vendor, model string) {
 // ──────────────────── 算法: 屏幕分辨率生成 ────────────────────
 // 规律: AvailHeight = Height - taskbar(32~48), AvailWidth = Width, ColorDepth = 24
 
+// genScreen 动态生成屏幕分辨率 (带权重分布)
 func genScreen() ScreenInfo {
 	type resolution struct {
 		w, h int
 	}
 
-	// 按宽高比分组的常见分辨率
-	r16x9 := []resolution{
-		{1366, 768}, {1536, 864}, {1600, 900},
-		{1920, 1080}, {2560, 1440}, {3840, 2160},
-	}
-	r16x10 := []resolution{
-		{1440, 900}, {1680, 1050}, {1920, 1200}, {2560, 1600},
-	}
-	r21x9 := []resolution{
-		{2560, 1080}, {3440, 1440},
-	}
-	rOther := []resolution{
-		{1280, 720}, {1360, 768}, {2880, 1800},
+	type resolutionWeight struct {
+		res    resolution
+		weight int
 	}
 
-	// 按市场份额加权: 16:9 最常见
-	pools := [][]resolution{r16x9, r16x9, r16x9, r16x10, r21x9, rOther}
-	pool := pools[rand.Intn(len(pools))]
-	res := pool[rand.Intn(len(pool))]
+	// 按市场份额分配权重
+	resolutions := []resolutionWeight{
+		// 低分辨率 (20% - 老旧设备)
+		{resolution{1366, 768}, 8}, {resolution{1440, 900}, 8}, {resolution{1536, 864}, 6}, {resolution{1600, 900}, 6},
+		// 标准 FHD (50% - 主流)
+		{resolution{1680, 1050}, 15}, {resolution{1920, 1080}, 20}, {resolution{1920, 1200}, 10},
+		// 高分辨率 (30% - 高端设备)
+		{resolution{2560, 1440}, 12}, {resolution{2560, 1600}, 10}, {resolution{3440, 1440}, 6}, {resolution{3840, 2160}, 5},
+	}
 
-	// 任务栏高度 32~48 像素
+	totalWeight := 0
+	for _, rw := range resolutions {
+		totalWeight += rw.weight
+	}
+
+	r := rand.Intn(totalWeight)
+	accumulated := 0
+	var selectedRes resolution
+	for _, rw := range resolutions {
+		accumulated += rw.weight
+		if r < accumulated {
+			selectedRes = rw.res
+			break
+		}
+	}
+
+	// 如果没有选中，使用最常见的分辨率
+	if selectedRes.w == 0 {
+		selectedRes = resolution{1920, 1080}
+	}
+
+	// 任务栏高度 32~48 像素，圆整到 8 的倍数
 	taskbar := 32 + rand.Intn(17) // 32-48
-	// 圆整到 8 的倍数 (Windows 常见)
 	taskbar = (taskbar / 8) * 8
 	if taskbar < 32 {
 		taskbar = 32
 	}
 
-	colorDepths := []int{24, 24, 24, 24, 30} // 24常见, 30是 HDR
+	// ColorDepth: 24 常见, 30 是 HDR
+	colorDepths := []int{24, 24, 24, 24, 30}
+	colorDepth := colorDepths[rand.Intn(len(colorDepths))]
 
 	return ScreenInfo{
-		Width:       res.w,
-		Height:      res.h,
-		AvailWidth:  res.w,
-		AvailHeight: res.h - taskbar,
-		ColorDepth:  colorDepths[rand.Intn(len(colorDepths))],
+		Width:       selectedRes.w,
+		Height:      selectedRes.h,
+		AvailWidth:  selectedRes.w,
+		AvailHeight: selectedRes.h - taskbar,
+		ColorDepth:  colorDepth,
 	}
 }
 
@@ -345,23 +523,48 @@ func abs(x int) int {
 
 // ──────────────────── 核心: 随机身份生成 ────────────────────
 
-// RandomIdentity 创建随机浏览器身份
+// RandomIdentity 创建随机浏览器身份 (带去重检查)
 func RandomIdentity() *BrowserIdentity {
+	const maxAttempts = 100 // 最多尝试100次生成唯一指纹
+	
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		id := generateRandomIdentity()
+		
+		// 检查是否24小时内使用过
+		if !globalFpCache.IsRecentlyUsed(id) {
+			globalFpCache.MarkUsed(id)
+			if attempt > 0 {
+				fmt.Printf("[指纹] 生成唯一指纹 (尝试 %d 次): %s\n", attempt+1, id.Hash()[:16])
+			}
+			return id
+		}
+		
+		// 如果重复，继续尝试
+		if attempt < maxAttempts-1 {
+			continue
+		}
+	}
+	
+	// 100次尝试后仍重复，记录警告但继续使用
+	fmt.Printf("[指纹] ⚠️  警告: %d 次尝试后仍有重复，强制使用新指纹\n", maxAttempts)
+	id := generateRandomIdentity()
+	globalFpCache.MarkUsed(id)
+	return id
+}
+
+// generateRandomIdentity 生成随机身份 (内部函数)
+func generateRandomIdentity() *BrowserIdentity {
 	// Chrome 版本
 	cv := genChromeVersion()
 
-	// GPU
-	gpuVendor, gpuModel := genGPU()
+	// 硬件配置 (CPU + 内存)
+	hardwareConcurrency, deviceMemory := genHardwareConfig()
+
+	// GPU (根据硬件配置智能选择)
+	gpuVendor, gpuModel := selectGPU(hardwareConcurrency, deviceMemory)
 
 	// Screen
 	screen := genScreen()
-
-	// 硬件参数
-	memories := []int{2, 4, 6, 8, 12, 16, 24, 32, 64}
-	deviceMemory := memories[rand.Intn(len(memories))]
-
-	concurrencies := []int{2, 4, 6, 8, 10, 12, 14, 16, 20, 24, 32}
-	hardwareConcurrency := concurrencies[rand.Intn(len(concurrencies))]
 
 	platform := "Win32"
 

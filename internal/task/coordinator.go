@@ -138,6 +138,27 @@ func startTask(req StartTaskRequest) map[string]interface{} {
 		}
 	}
 
+	// 检查代理池状态（如果启用了代理池）
+	useProxyPool := storage.GetProxy() == "" // 全局代理为空时才使用代理池
+	if useProxyPool {
+		availableProxies := proxy.CountAvailable()
+		if availableProxies == 0 {
+			Manager.mu.Unlock()
+			return map[string]interface{}{"error": "代理池无可用代理（全部冷却中或已禁用）"}
+		}
+		
+		// 根据可用代理数动态调整并发数
+		recommendedConcurrency := calculateOptimalConcurrency(availableProxies, req.Concurrency)
+		if req.Concurrency > recommendedConcurrency {
+			log.Printf("[Kiro] 可用代理数: %d, 建议并发数: %d (当前设置: %d)", 
+				availableProxies, recommendedConcurrency, req.Concurrency)
+			// 可选：强制调整并发数
+			// req.Concurrency = recommendedConcurrency
+		} else {
+			log.Printf("[Kiro] 可用代理数: %d, 并发数: %d", availableProxies, req.Concurrency)
+		}
+	}
+
 	// 初始化状态
 	Manager.running = true
 	Manager.stopCh = make(chan struct{})
@@ -677,6 +698,22 @@ func runBatch(req StartTaskRequest, emailProvider string, outlookAccounts []emai
 				defer func() { <-sem }()
 				doTask(idx)
 			}(i)
+			
+			// ✅ 优化：任务启动间隔 (增加基础延迟和随机抖动)
+			if i < req.Count-1 {
+				baseDelay := req.Delay
+				if baseDelay < 30 {
+					baseDelay = 30 // 最少30秒
+				}
+				
+				// 添加随机抖动 (50%-150%)
+				jitter := baseDelay/2 + rand.Intn(baseDelay)
+				totalDelay := baseDelay + jitter
+				
+				log.Printf("[Kiro] 等待 %d 秒后启动下一个任务 (基础:%ds + 抖动:%ds)", 
+					totalDelay, baseDelay, jitter)
+				time.Sleep(time.Duration(totalDelay) * time.Second)
+			}
 		}
 		wg.Wait()
 	} else {
@@ -689,8 +726,21 @@ func runBatch(req StartTaskRequest, emailProvider string, outlookAccounts []emai
 			default:
 			}
 			doTask(i)
-			if req.Delay > 0 && i < req.Count-1 {
-				time.Sleep(time.Duration(req.Delay) * time.Second)
+			
+			// ✅ 优化：串行模式下的任务间隔
+			if i < req.Count-1 {
+				baseDelay := req.Delay
+				if baseDelay < 30 {
+					baseDelay = 30 // 最少30秒
+				}
+				
+				// 添加随机抖动 (50%-150%)
+				jitter := baseDelay/2 + rand.Intn(baseDelay)
+				totalDelay := baseDelay + jitter
+				
+				log.Printf("[Kiro] 等待 %d 秒后启动下一个任务 (基础:%ds + 抖动:%ds)", 
+					totalDelay, baseDelay, jitter)
+				time.Sleep(time.Duration(totalDelay) * time.Second)
 			}
 		}
 	}
@@ -900,4 +950,33 @@ func isKillSwitchError(errorMsg string) bool {
 		}
 	}
 	return false
+}
+
+// calculateOptimalConcurrency 根据可用代理数计算最优并发数
+func calculateOptimalConcurrency(availableProxies, requestedConcurrency int) int {
+	if availableProxies < 1 {
+		return 0
+	}
+	
+	// 策略：确保每个并发任务至少有2个代理可轮换
+	// 避免所有代理快速进入冷却导致后续任务无代理可用
+	optimal := availableProxies / 2
+	
+	// 最少保证1个并发
+	if optimal < 1 {
+		optimal = 1
+	}
+	
+	// 不超过请求的并发数
+	if optimal > requestedConcurrency {
+		optimal = requestedConcurrency
+	}
+	
+	// 最大并发数限制（避免过度并发）
+	const maxConcurrency = 20
+	if optimal > maxConcurrency {
+		optimal = maxConcurrency
+	}
+	
+	return optimal
 }
